@@ -12,11 +12,13 @@ type Props = {
   defaultDate: string;
   initial?: Expense | null;
   saving: boolean;
+  /** stack = 手机的竖排表单；bar = 电脑顶部的常驻输入条 */
+  layout?: 'stack' | 'bar';
   onSave: (e: Expense, original?: Expense) => Promise<boolean>;
   onCancel?: () => void;
 };
 
-export function ExpenseForm({ config, meId, defaultDate, initial, saving, onSave, onCancel }: Props) {
+export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout = 'stack', onSave, onCancel }: Props) {
   const members = config.members;
   const allIds = members.map((m) => m.id);
   const [amountText, setAmountText] = useState(initial ? centsToInput(initial.amount) : '');
@@ -89,6 +91,112 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, onSave
   const toggle = (id: string) =>
     setParticipants((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
+  const categoryChips = (
+    <div className="chips" role="radiogroup" aria-label="分类">
+      {config.categories.map((c) => (
+        <button type="button" key={c} role="radio" aria-checked={category === c}
+          className={`chip ${category === c ? 'on' : ''}`} onClick={() => setCategory(c)}>
+          <Icon name={iconFor(c, config.categoryIcons as Record<string, IconName>)} size={16} />{c}</button>
+      ))}
+      {!config.categories.includes(category) && (
+        <button type="button" role="radio" aria-checked className="chip on">
+          <Icon name={iconFor(category, config.categoryIcons as Record<string, IconName>)} size={16} />{category}</button>
+      )}
+    </div>
+  );
+
+  const modeSwitch = (
+    <div className="segmented">
+      {([['equal', '平分'], ['ratio', '按比例'], ['exact', '指定金额']] as const).map(([k, label]) => (
+        <button type="button" key={k} className={mode === k ? 'on' : ''} aria-pressed={mode === k} onClick={() => setMode(k)}>{label}</button>
+      ))}
+    </div>
+  );
+
+  if (layout === 'bar') {
+    const participating = members.filter((m) => participants.includes(m.id));
+    const shareText = amount && amount > 0
+      ? participating.map((m) => `${m.name} ${fmt(preview[m.id] ?? 0, config.currency)}`).join(' · ')
+      : participating.length === members.length
+        ? `${members.length} 人平分`
+        : `只算 ${participating.map((m) => m.name).join('、')}`;
+    return (
+      <form className="bar" onSubmit={(ev) => { ev.preventDefault(); submit(); }}>
+        <div className="bar-row">
+          <div className="field bar-amount">
+            <label htmlFor="amount">金额</label>
+            <div className="amount-input">
+              <span aria-hidden>{config.currency}</span>
+              <input id="amount" inputMode="decimal" autoComplete="off" placeholder="0.00"
+                value={amountText} onChange={(e) => setAmountText(e.target.value)} />
+            </div>
+          </div>
+          <label className="field bar-note">
+            <span className="field-label">备注</span>
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="比如：Costco、电费 8 月" />
+          </label>
+          <label className="field bar-date">
+            <span className="field-label">日期</span>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </label>
+          <div className="field">
+            <span className="field-label">谁付的钱</span>
+            {members.length <= 3 ? (
+              <div className="segmented payer">
+                {members.map((m) => (
+                  <button type="button" key={m.id} className={payerId === m.id ? 'on' : ''}
+                    aria-pressed={payerId === m.id} onClick={() => setPayerId(m.id)}>{m.name}</button>
+                ))}
+              </div>
+            ) : (
+              <select value={payerId} onChange={(e) => setPayerId(e.target.value)}>
+                {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            )}
+          </div>
+          <button type="submit" className="primary bar-submit" disabled={saving}>
+            {saving ? '保存中…' : initial ? '保存修改' : '记一笔'}
+          </button>
+          {onCancel && <button type="button" className="ghost" onClick={onCancel}>取消</button>}
+        </div>
+
+        {categoryChips}
+
+        <div className="bar-split">
+          <span className="field-label">怎么分</span>
+          {modeSwitch}
+          {mode === 'equal' && <span className="bar-shares num">{shareText}</span>}
+          {mode !== 'equal' && members.map((m) => (
+            <span key={m.id} className="bar-weight">
+              <label htmlFor={`w-${m.id}`}>{m.name}</label>
+              {mode === 'ratio' ? (
+                <input id={`w-${m.id}`} className="small" inputMode="decimal"
+                  value={weights[m.id] ?? ''} onChange={(e) => setWeights({ ...weights, [m.id]: e.target.value })} />
+              ) : (
+                <input id={`w-${m.id}`} className="small" inputMode="decimal" placeholder="0"
+                  value={exacts[m.id] ?? ''} onChange={(e) => setExacts({ ...exacts, [m.id]: e.target.value })} />
+              )}
+              <span className="num muted">{preview[m.id] ? fmt(preview[m.id], config.currency) : '—'}</span>
+            </span>
+          ))}
+          {mode === 'equal' && members.length > 1 && (
+            <span className="bar-quick">
+              {members.map((m) => (
+                <button type="button" key={m.id} className="link" onClick={() => setParticipants([m.id])}>只算 {m.name}</button>
+              ))}
+              {participants.length !== allIds.length && (
+                <button type="button" className="link" onClick={() => setParticipants(allIds)}>全部平分</button>
+              )}
+            </span>
+          )}
+          {showsExpr && <span className="hint">= {fmt(amount!, config.currency)}</span>}
+        </div>
+
+        {error && <p className="error" role="alert">{error}</p>}
+      </form>
+    );
+  }
+
   return (
     <form className="form" onSubmit={(ev) => { ev.preventDefault(); submit(); }}>
       <div className="amount-field">
@@ -105,17 +213,7 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, onSave
 
       <div className="field">
         <span className="field-label">分类</span>
-        <div className="chips" role="radiogroup">
-          {config.categories.map((c) => (
-            <button type="button" key={c} role="radio" aria-checked={category === c}
-              className={`chip ${category === c ? 'on' : ''}`} onClick={() => setCategory(c)}>
-              <Icon name={iconFor(c, config.categoryIcons as Record<string, IconName>)} size={16} />{c}</button>
-          ))}
-          {!config.categories.includes(category) && (
-            <button type="button" role="radio" aria-checked className="chip on">
-              <Icon name={iconFor(category, config.categoryIcons as Record<string, IconName>)} size={16} />{category}</button>
-          )}
-        </div>
+        {categoryChips}
       </div>
 
       <div className="row2">
@@ -138,11 +236,7 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, onSave
 
       <fieldset className="field split">
         <legend className="field-label">怎么分</legend>
-        <div className="segmented">
-          {([['equal', '平分'], ['ratio', '按比例'], ['exact', '指定金额']] as const).map(([k, label]) => (
-            <button type="button" key={k} className={mode === k ? 'on' : ''} aria-pressed={mode === k} onClick={() => setMode(k)}>{label}</button>
-          ))}
-        </div>
+        {modeSwitch}
 
         <ul className="split-rows">
           {members.map((m) => (

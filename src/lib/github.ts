@@ -53,6 +53,20 @@ export class Store {
     return { private: !!j.private, canWrite: j.permissions ? !!j.permissions.push : true };
   }
 
+  /** 列出 months/ 下已有的月份，倒序 */
+  async listMonths(): Promise<string[]> {
+    const r = await fetch(`${API}/repos/${encodeURIComponent(this.s.owner)}/${encodeURIComponent(this.s.repo)}/contents/months?ref=${encodeURIComponent(this.s.branch)}`, {
+      headers: this.headers(), cache: 'no-store',
+    });
+    if (r.status === 404) return [];
+    if (!r.ok) throw new Error(await errorMessage(r));
+    const j = (await r.json()) as { name: string; type: string }[];
+    return j.filter((f) => f.type === 'file' && f.name.endsWith('.json'))
+      .map((f) => f.name.replace(/\.json$/, ''))
+      .filter((m) => /^\d{4}-\d{2}$/.test(m))
+      .sort((a, b) => b.localeCompare(a));
+  }
+
   async read<T>(path: string): Promise<{ data: T; sha: string } | null> {
     const r = await fetch(`${this.url(path)}?ref=${encodeURIComponent(this.s.branch)}`, {
       headers: this.headers(), cache: 'no-store',

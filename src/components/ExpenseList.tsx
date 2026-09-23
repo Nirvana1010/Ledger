@@ -8,6 +8,8 @@ import { Icon, iconFor, type IconName } from './icons';
 type Props = {
   config: Config;
   data: MonthData;
+  /** table = 电脑上的紧凑表格；cards = 手机上的卡片列表 */
+  variant?: 'cards' | 'table';
   onEdit: (e: Expense) => void;
   onDelete: (e: Expense) => void;
 };
@@ -39,7 +41,7 @@ function toCSV(data: MonthData, config: Config): string {
   return '\uFEFF' + [head, ...rows].map((r) => r.map(esc).join(',')).join('\n');
 }
 
-export function ExpenseList({ config, data, onEdit, onDelete }: Props) {
+export function ExpenseList({ config, data, variant = 'cards', onEdit, onDelete }: Props) {
   const [filter, setFilter] = useState<string | null>(null);
   const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '已移除';
 
@@ -66,20 +68,52 @@ export function ExpenseList({ config, data, onEdit, onDelete }: Props) {
   }
 
   if (!data.expenses.length) {
-    return <p className="empty">这个月还没有记录。去「记一笔」添加第一笔支出。</p>;
+    return <p className="empty">这个月还没有记录。{variant === 'table' ? '在上面记下第一笔支出。' : '去「记一笔」添加第一笔支出。'}</p>;
+  }
+
+  const filters = (
+    <div className="chips scroll">
+      <button className={`chip ${!filter ? 'on' : ''}`} onClick={() => setFilter(null)}>全部</button>
+      {usedCats.map((c) => (
+        <button key={c} className={`chip ${filter === c ? 'on' : ''}`} onClick={() => setFilter(filter === c ? null : c)}>
+          <Icon name={iconFor(c, config.categoryIcons as Record<string, IconName>)} size={16} />{c}</button>
+      ))}
+    </div>
+  );
+
+  if (variant === 'table') {
+    return (
+      <div className="list">
+        <div className="table-head-row">
+          <span className="list-count">{shown.length} 笔，共 <strong className="num">{fmt(total, config.currency)}</strong></span>
+          <button className="link" onClick={exportCSV}>导出 CSV</button>
+        </div>
+        {filters}
+        <div className="ledger-table">
+          <div className="lt-head">
+            <span>日期</span><span></span><span>项目</span><span>付款人</span><span>分摊</span><span className="right">金额</span><span></span>
+          </div>
+          {shown.map((e) => (
+            <div key={e.id} className="lt-row">
+              <button className="lt-main" onClick={() => onEdit(e)} aria-label={`编辑 ${e.category} ${fmt(e.amount, config.currency)}`}>
+                <span className="lt-date num">{Number(e.date.slice(5, 7))} 月 {Number(e.date.slice(8))} 日</span>
+                <span className="lt-icon"><Icon name={iconFor(e.category, config.categoryIcons as Record<string, IconName>)} size={16} /></span>
+                <span className="lt-note">{e.note || e.category}{e.note && <small> · {e.category}</small>}</span>
+                <span className="lt-dim">{name(e.payerId)}</span>
+                <span className="lt-dim">{splitSummary(e, config)}</span>
+                <span className="lt-amt num">{fmt(e.amount, config.currency)}</span>
+              </button>
+              <button className="lt-del" onClick={() => onDelete(e)} aria-label={`删除 ${e.note || e.category}`}>×</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="list">
-      <div className="list-bar">
-        <div className="chips scroll">
-          <button className={`chip ${!filter ? 'on' : ''}`} onClick={() => setFilter(null)}>全部</button>
-          {usedCats.map((c) => (
-            <button key={c} className={`chip ${filter === c ? 'on' : ''}`} onClick={() => setFilter(filter === c ? null : c)}>
-              <Icon name={iconFor(c, config.categoryIcons as Record<string, IconName>)} size={16} />{c}</button>
-          ))}
-        </div>
-      </div>
+      <div className="list-bar">{filters}</div>
       <p className="list-total">
         {shown.length} 笔，共 <strong className="num">{fmt(total, config.currency)}</strong>
         <button className="link" onClick={exportCSV}>导出 CSV</button>

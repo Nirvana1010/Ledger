@@ -7,10 +7,12 @@ type Props = {
   config: Config;
   data: MonthData;
   saving: boolean;
+  /** compact = 电脑右侧窄栏，图表和表格都收窄 */
+  compact?: boolean;
   onToggleSettled: () => void;
 };
 
-export function Summary({ config, data, saving, onToggleSettled }: Props) {
+export function Summary({ config, data, saving, compact = false, onToggleSettled }: Props) {
   const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '已移除';
   const c = config.currency;
   const balances = computeBalances(data.expenses, config.members);
@@ -19,7 +21,7 @@ export function Summary({ config, data, saving, onToggleSettled }: Props) {
   const total = data.expenses.reduce((a, e) => a + e.amount, 0);
 
   return (
-    <div className="summary">
+    <div className={`summary ${compact ? 'compact' : ''}`}>
       <section className={`verdict ${data.settledAt ? 'settled' : ''}`} aria-live="polite">
         {!data.expenses.length ? (
           <p className="verdict-empty">这个月还没有支出，没有需要结算的。</p>
@@ -71,7 +73,7 @@ export function Summary({ config, data, saving, onToggleSettled }: Props) {
 
           <section className="block">
             <h2>分类</h2>
-            <CategoryDonut cats={cats} config={config} />
+            <CategoryDonut cats={cats} config={config} size={compact ? 140 : 190} />
           </section>
         </>
       )}

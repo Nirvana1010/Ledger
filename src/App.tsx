@@ -7,21 +7,23 @@ import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
 import { Summary } from './components/Summary';
 import { SettingsView } from './components/SettingsView';
+import { Sidebar } from './components/Sidebar';
 
 type Tab = 'add' | 'list' | 'settle' | 'settings';
 const TABS: [Tab, string][] = [['add', '记一笔'], ['list', '明细'], ['settle', '结算'], ['settings', '设置']];
 
-/** 宽屏（电脑）走左右分栏，窄屏保留标签页 */
-function useWide(): boolean {
-  const [wide, setWide] = useState(() => window.matchMedia('(min-width: 900px)').matches);
+function useMedia(query: string): boolean {
+  const [hit, setHit] = useState(() => window.matchMedia(query).matches);
   useEffect(() => {
-    const mq = window.matchMedia('(min-width: 900px)');
-    const on = (e: MediaQueryListEvent) => setWide(e.matches);
+    const mq = window.matchMedia(query);
+    const on = (e: MediaQueryListEvent) => setHit(e.matches);
+    setHit(mq.matches);
     mq.addEventListener('change', on);
     return () => mq.removeEventListener('change', on);
-  }, []);
-  return wide;
+  }, [query]);
+  return hit;
 }
+const SIDEBAR_KEY = 'ledger.sidebar.v1';
 
 const SETTINGS_KEY = 'ledger.settings.v1';
 const emptySettings: Settings = { owner: '', repo: '', branch: 'main', token: '', meId: '' };
@@ -53,7 +55,18 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [editing, setEditing] = useState<Expense | null>(null);
-  const wide = useWide();
+  const wide = useMedia('(min-width: 1000px)');
+  const roomy = useMedia('(min-width: 1180px)');
+  const [sideOpen, setSideOpen] = useState(() => localStorage.getItem(SIDEBAR_KEY) !== 'closed');
+  const [months, setMonths] = useState<string[]>([]);
+  const [monthTotals, setMonthTotals] = useState<Record<string, number>>({});
+  const [monthSettled, setMonthSettled] = useState<Record<string, boolean>>({});
+  const showSide = wide && roomy && sideOpen && tab !== 'settings';
+
+  const toggleSide = (open: boolean) => {
+    setSideOpen(open);
+    try { localStorage.setItem(SIDEBAR_KEY, open ? 'open' : 'closed'); } catch { /* 忽略 */ }
+  };
 
   const meName = config?.members.find((m) => m.id === settings.meId)?.name ?? '有人';
 
@@ -84,7 +97,10 @@ export default function App() {
     if (!quiet) setLoading(true);
     try {
       const r = await store.read<MonthData>(monthPath(month));
-      setData(r?.data ?? emptyMonth(month));
+      const d = r?.data ?? emptyMonth(month);
+      setData(d);
+      setMonthTotals((t) => ({ ...t, [month]: d.expenses.reduce((a, e) => a + e.amount, 0) }));
+      setMonthSettled((x) => ({ ...x, [month]: !!d.settledAt }));
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -92,6 +108,32 @@ export default function App() {
       setLoading(false);
     }
   }, [store, month]);
+
+  const loadMonths = useCallback(async () => {
+    if (!store) return;
+    try {
+      const list = await store.listMonths();
+      setMonths(list);
+      const recent = list.slice(0, 12);
+      const results = await Promise.all(recent.map(async (m) => {
+        try {
+          const r = await store.read<MonthData>(monthPath(m));
+          return [m, r?.data] as const;
+        } catch { return [m, undefined] as const; }
+      }));
+      const totals: Record<string, number> = {};
+      const settled: Record<string, boolean> = {};
+      for (const [m, d] of results) {
+        if (!d) continue;
+        totals[m] = d.expenses.reduce((a, e) => a + e.amount, 0);
+        settled[m] = !!d.settledAt;
+      }
+      setMonthTotals((t) => ({ ...t, ...totals }));
+      setMonthSettled((x) => ({ ...x, ...settled }));
+    } catch { /* 侧栏是附加信息，失败就不显示总额 */ }
+  }, [store]);
+
+  useEffect(() => { if (showSide) loadMonths(); }, [showSide, loadMonths]);
 
   useEffect(() => { setConfig(null); setConfigMissing(false); loadConfig(); }, [loadConfig]);
   useEffect(() => { setData(null); loadMonth(); }, [loadMonth]);
@@ -180,14 +222,28 @@ export default function App() {
   const needMe = config && !config.members.some((m) => m.id === settings.meId);
 
   return (
-    <div className="app">
+    <div className={`app ${showSide ? 'with-side' : ''}`}>
+      {showSide && config && (
+        <Sidebar months={months}
+          totals={data ? { ...monthTotals, [month]: data.expenses.reduce((a, e) => a + e.amount, 0) } : monthTotals} settled={data ? { ...monthSettled, [month]: !!data.settledAt } : monthSettled} month={month} config={config}
+          meName={meName} onPick={setMonth} onCollapse={() => toggleSide(false)} onSettings={() => setTab('settings')} />
+      )}
+      <div className="app-body">
       <header className="top">
-        <h1>账本</h1>
+        {!showSide && <h1>账本</h1>}
+        {showSide && (
+          <h1 className="top-month">{monthLabel(month)}</h1>
+        )}
         {connected && config && (
           <div className="month-nav">
-            <button className="icon" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="上个月">‹</button>
-            <button className="month" onClick={() => setMonth(currentMonth())} title="回到本月">{monthLabel(month)}</button>
-            <button className="icon" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="下个月">›</button>
+            {wide && roomy && !sideOpen && tab !== 'settings' && (
+              <button className="icon" onClick={() => toggleSide(true)} aria-label="展开侧栏">»</button>
+            )}
+            {!showSide && <>
+              <button className="icon" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="上个月">‹</button>
+              <button className="month" onClick={() => setMonth(currentMonth())} title="回到本月">{monthLabel(month)}</button>
+              <button className="icon" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="下个月">›</button>
+            </>}
             <button className="icon refresh" onClick={() => { loadMonth(); loadConfig(); }} aria-label="刷新" disabled={loading}>↻</button>
             {wide && (
               <button className="ghost small" onClick={() => setTab(tab === 'settings' ? 'add' : 'settings')}>
@@ -235,23 +291,18 @@ export default function App() {
           <p className="empty">{loading || !error ? '正在读取账本…' : '读取失败。'}</p>
         ) : wide ? (
           <div className="desk">
-            <section className="desk-left">
-              <h2 className="page-title">{editing ? '修改这笔' : '记一笔'}</h2>
-              {editing ? (
-                <ExpenseForm key={editing.id} config={config} meId={settings.meId} defaultDate={editing.date}
-                  initial={editing} saving={saving} onSave={saveExpense} onCancel={() => setEditing(null)} />
-              ) : (
-                <ExpenseForm key={month} config={config} meId={settings.meId} defaultDate={defaultDateFor(month)}
-                  saving={saving} onSave={saveExpense} />
-              )}
-            </section>
-            <section className="desk-right">
-              <Summary config={config} data={data} saving={saving} onToggleSettled={toggleSettled} />
-              <div className="block">
-                <h2>明细</h2>
-                <ExpenseList config={config} data={data} onEdit={setEditing} onDelete={deleteExpense} />
-              </div>
-            </section>
+            <ExpenseForm key={editing ? editing.id : month} layout="bar" config={config} meId={settings.meId}
+              defaultDate={editing ? editing.date : defaultDateFor(month)} initial={editing}
+              saving={saving} onSave={saveExpense} onCancel={editing ? () => setEditing(null) : undefined} />
+            <div className="desk-cols">
+              <section className="desk-main">
+                <h2 className="block-title">本月明细</h2>
+                <ExpenseList config={config} data={data} variant="table" onEdit={setEditing} onDelete={deleteExpense} />
+              </section>
+              <section className="desk-aside">
+                <Summary config={config} data={data} saving={saving} onToggleSettled={toggleSettled} compact />
+              </section>
+            </div>
           </div>
         ) : editing ? (
           <>
@@ -269,6 +320,7 @@ export default function App() {
         )}
       </main>
 
+      </div>
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
