@@ -3,6 +3,7 @@ import type { Config, Expense, MonthData } from '../lib/types';
 import { fmt } from '../lib/money';
 import { dayLabel } from '../lib/dates';
 import { computeShares } from '../lib/settle';
+import { Icon, iconFor, type IconName } from './icons';
 
 type Props = {
   config: Config;
@@ -74,7 +75,8 @@ export function ExpenseList({ config, data, onEdit, onDelete }: Props) {
         <div className="chips scroll">
           <button className={`chip ${!filter ? 'on' : ''}`} onClick={() => setFilter(null)}>全部</button>
           {usedCats.map((c) => (
-            <button key={c} className={`chip ${filter === c ? 'on' : ''}`} onClick={() => setFilter(filter === c ? null : c)}>{c}</button>
+            <button key={c} className={`chip ${filter === c ? 'on' : ''}`} onClick={() => setFilter(filter === c ? null : c)}>
+              <Icon name={iconFor(c, config.categoryIcons as Record<string, IconName>)} size={16} />{c}</button>
           ))}
         </div>
       </div>
@@ -90,10 +92,12 @@ export function ExpenseList({ config, data, onEdit, onDelete }: Props) {
             {items.map((e) => (
               <li key={e.id} className="item">
                 <button className="item-main" onClick={() => onEdit(e)} aria-label={`编辑 ${e.category} ${fmt(e.amount, config.currency)}`}>
-                  <span className="item-cat">{e.note ? e.category : ''}</span>
+                  <span className="item-icon" title={e.category}>
+                    <Icon name={iconFor(e.category, config.categoryIcons as Record<string, IconName>)} />
+                  </span>
                   <span className="item-text">
                     <span>{e.note || e.category}</span>
-                    <small>{name(e.payerId)} 付，{splitSummary(e, config)}</small>
+                    <small>{e.note ? `${e.category} · ` : ''}{name(e.payerId)} 付，{splitSummary(e, config)}</small>
                   </span>
                   <span className="item-amt num">{fmt(e.amount, config.currency)}</span>
                 </button>

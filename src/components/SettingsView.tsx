@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Config, Member, Settings } from '../lib/types';
 import { DEFAULT_CATEGORIES } from '../lib/types';
 import { Store } from '../lib/github';
+import { ICON_NAMES, Icon, iconFor, type IconName } from './icons';
 
 type Props = {
   settings: Settings;
@@ -113,11 +114,17 @@ function Setup({ saving, onCreate }: { saving: boolean; onCreate: (c: Config) =>
 function ConfigEditor({ config, saving, onSave }: { config: Config; saving: boolean; onSave: (c: Config) => Promise<boolean> }) {
   const [members, setMembers] = useState<Member[]>(config.members);
   const [cats, setCats] = useState<string[]>(config.categories);
+  const [icons, setIcons] = useState<Record<string, string>>(config.categoryIcons ?? {});
+  const [picking, setPicking] = useState<string | null>(null);
   const [newCat, setNewCat] = useState('');
   const [currency, setCurrency] = useState(config.currency);
-  useEffect(() => { setMembers(config.members); setCats(config.categories); setCurrency(config.currency); }, [config]);
+  useEffect(() => {
+    setMembers(config.members); setCats(config.categories);
+    setIcons(config.categoryIcons ?? {}); setCurrency(config.currency);
+  }, [config]);
 
-  const dirty = JSON.stringify([members, cats, currency]) !== JSON.stringify([config.members, config.categories, config.currency]);
+  const dirty = JSON.stringify([members, cats, currency, icons])
+    !== JSON.stringify([config.members, config.categories, config.currency, config.categoryIcons ?? {}]);
   const addCat = () => {
     const c = newCat.trim();
     if (c && !cats.includes(c)) setCats([...cats, c]);
@@ -141,14 +148,29 @@ function ConfigEditor({ config, saving, onSave }: { config: Config; saving: bool
       <button className="link" onClick={() => setMembers([...members, { id: crypto.randomUUID().slice(0, 8), name: '' }])}>添加成员</button>
       <p className="hint">为了不弄乱历史账目，成员只能改名不能删除。</p>
 
-      <span className="field-label">分类（顺序就是记账页的顺序）</span>
+      <span className="field-label">分类（顺序就是记账页的顺序，点图标可以更换）</span>
       <ul className="cat-list">
         {cats.map((c, i) => (
           <li key={c}>
+            <button className="cat-icon" onClick={() => setPicking(picking === c ? null : c)}
+              aria-label={`更换 ${c} 的图标`} aria-expanded={picking === c}>
+              <Icon name={iconFor(c, icons as Record<string, IconName>)} />
+            </button>
             <span>{c}</span>
             <button className="icon" onClick={() => move(i, -1)} aria-label={`${c} 上移`} disabled={i === 0}>↑</button>
             <button className="icon" onClick={() => move(i, 1)} aria-label={`${c} 下移`} disabled={i === cats.length - 1}>↓</button>
             <button className="icon" onClick={() => setCats(cats.filter((x) => x !== c))} aria-label={`删除分类 ${c}`}>×</button>
+            {picking === c && (
+              <div className="icon-grid">
+                {ICON_NAMES.map((n) => (
+                  <button key={n} className={`icon-opt ${iconFor(c, icons as Record<string, IconName>) === n ? 'on' : ''}`}
+                    aria-label={n} aria-pressed={iconFor(c, icons as Record<string, IconName>) === n}
+                    onClick={() => { setIcons({ ...icons, [c]: n }); setPicking(null); }}>
+                    <Icon name={n} />
+                  </button>
+                ))}
+              </div>
+            )}
           </li>
         ))}
       </ul>
@@ -164,7 +186,13 @@ function ConfigEditor({ config, saving, onSave }: { config: Config; saving: bool
 
       <div className="actions">
         <button className="primary" disabled={!dirty || saving || members.some((m) => !m.name.trim()) || !cats.length}
-          onClick={() => onSave({ ...config, members: members.map((m) => ({ ...m, name: m.name.trim() })), categories: cats, currency: currency.trim() || '$' })}>
+          onClick={() => onSave({
+            ...config,
+            members: members.map((m) => ({ ...m, name: m.name.trim() })),
+            categories: cats,
+            categoryIcons: Object.fromEntries(Object.entries(icons).filter(([k]) => cats.includes(k))),
+            currency: currency.trim() || '$',
+          })}>
           {saving ? '保存中…' : '保存设置'}
         </button>
       </div>

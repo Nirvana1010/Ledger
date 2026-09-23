@@ -24,6 +24,8 @@ export type Config = {
   currency: string;
   members: Member[];
   categories: string[];
+  /** 分类 → 图标名；没指定的分类走内置默认表 */
+  categoryIcons?: Record<string, string>;
 };
 
 export type MonthData = {

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Config, Expense, Split } from '../lib/types';
 import { centsToInput, fmt, parseAmount } from '../lib/money';
 import { computeShares } from '../lib/settle';
+import { Icon, iconFor, type IconName } from './icons';
 
 type Mode = Split['type'];
 
@@ -107,10 +108,12 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, onSave
         <div className="chips" role="radiogroup">
           {config.categories.map((c) => (
             <button type="button" key={c} role="radio" aria-checked={category === c}
-              className={`chip ${category === c ? 'on' : ''}`} onClick={() => setCategory(c)}>{c}</button>
+              className={`chip ${category === c ? 'on' : ''}`} onClick={() => setCategory(c)}>
+              <Icon name={iconFor(c, config.categoryIcons as Record<string, IconName>)} size={16} />{c}</button>
           ))}
           {!config.categories.includes(category) && (
-            <button type="button" role="radio" aria-checked className="chip on">{category}</button>
+            <button type="button" role="radio" aria-checked className="chip on">
+              <Icon name={iconFor(category, config.categoryIcons as Record<string, IconName>)} size={16} />{category}</button>
           )}
         </div>
       </div>

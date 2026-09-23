@@ -1,6 +1,7 @@
 import type { Config, MonthData } from '../lib/types';
 import { fmt } from '../lib/money';
 import { categoryTotals, computeBalances, computeTransfers } from '../lib/settle';
+import { CategoryDonut } from './CategoryDonut';
 
 type Props = {
   config: Config;
@@ -16,7 +17,6 @@ export function Summary({ config, data, saving, onToggleSettled }: Props) {
   const transfers = computeTransfers(balances);
   const cats = categoryTotals(data.expenses);
   const total = data.expenses.reduce((a, e) => a + e.amount, 0);
-  const max = cats[0]?.total ?? 1;
 
   return (
     <div className="summary">
@@ -71,16 +71,7 @@ export function Summary({ config, data, saving, onToggleSettled }: Props) {
 
           <section className="block">
             <h2>分类</h2>
-            <ul className="bars">
-              {cats.map((x) => (
-                <li key={x.category}>
-                  <span className="bar-label">{x.category}</span>
-                  <span className="bar-track"><span className="bar-fill" style={{ width: `${(x.total / max) * 100}%` }} /></span>
-                  <span className="bar-val num">{fmt(x.total, c)}</span>
-                  <span className="bar-pct num">{Math.round((x.total / total) * 100)}%</span>
-                </li>
-              ))}
-            </ul>
+            <CategoryDonut cats={cats} config={config} />
           </section>
         </>
       )}

@@ -11,6 +11,18 @@ import { SettingsView } from './components/SettingsView';
 type Tab = 'add' | 'list' | 'settle' | 'settings';
 const TABS: [Tab, string][] = [['add', '记一笔'], ['list', '明细'], ['settle', '结算'], ['settings', '设置']];
 
+/** 宽屏（电脑）走左右分栏，窄屏保留标签页 */
+function useWide(): boolean {
+  const [wide, setWide] = useState(() => window.matchMedia('(min-width: 900px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 900px)');
+    const on = (e: MediaQueryListEvent) => setWide(e.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return wide;
+}
+
 const SETTINGS_KEY = 'ledger.settings.v1';
 const emptySettings: Settings = { owner: '', repo: '', branch: 'main', token: '', meId: '' };
 
@@ -41,6 +53,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [editing, setEditing] = useState<Expense | null>(null);
+  const wide = useWide();
 
   const meName = config?.members.find((m) => m.id === settings.meId)?.name ?? '有人';
 
@@ -176,10 +189,16 @@ export default function App() {
             <button className="month" onClick={() => setMonth(currentMonth())} title="回到本月">{monthLabel(month)}</button>
             <button className="icon" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="下个月">›</button>
             <button className="icon refresh" onClick={() => { loadMonth(); loadConfig(); }} aria-label="刷新" disabled={loading}>↻</button>
+            {wide && (
+              <button className="ghost small" onClick={() => setTab(tab === 'settings' ? 'add' : 'settings')}>
+                {tab === 'settings' ? '返回账本' : '设置'}
+              </button>
+            )}
           </div>
         )}
       </header>
 
+      {!wide && (
       <nav className="tabs" aria-label="页面">
         {TABS.map(([k, label]) => (
           <button key={k} className={tab === k ? 'on' : ''} aria-current={tab === k ? 'page' : undefined}
@@ -190,6 +209,7 @@ export default function App() {
           </button>
         ))}
       </nav>
+      )}
 
       <main>
         {error && (
@@ -204,7 +224,7 @@ export default function App() {
             <button className="link" onClick={() => setTab('settings')}>去设置</button>
           </div>
         )}
-        {data?.settledAt && tab === 'add' && (
+        {data?.settledAt && (tab === 'add' || wide) && (
           <div className="banner quiet"><span>{monthLabel(month)} 已结清。</span></div>
         )}
 
@@ -213,6 +233,26 @@ export default function App() {
             onSaveSettings={saveSettings} onSaveConfig={saveConfig} />
         ) : !ready ? (
           <p className="empty">{loading || !error ? '正在读取账本…' : '读取失败。'}</p>
+        ) : wide ? (
+          <div className="desk">
+            <section className="desk-left">
+              <h2 className="page-title">{editing ? '修改这笔' : '记一笔'}</h2>
+              {editing ? (
+                <ExpenseForm key={editing.id} config={config} meId={settings.meId} defaultDate={editing.date}
+                  initial={editing} saving={saving} onSave={saveExpense} onCancel={() => setEditing(null)} />
+              ) : (
+                <ExpenseForm key={month} config={config} meId={settings.meId} defaultDate={defaultDateFor(month)}
+                  saving={saving} onSave={saveExpense} />
+              )}
+            </section>
+            <section className="desk-right">
+              <Summary config={config} data={data} saving={saving} onToggleSettled={toggleSettled} />
+              <div className="block">
+                <h2>明细</h2>
+                <ExpenseList config={config} data={data} onEdit={setEditing} onDelete={deleteExpense} />
+              </div>
+            </section>
+          </div>
         ) : editing ? (
           <>
             <h2 className="page-title">修改这笔</h2>
