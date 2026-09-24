@@ -226,7 +226,7 @@ thead th { color: var(--muted); font-weight: 400; font-size: .8125rem; }
   .toast { left: auto; right: 28px; top: auto; bottom: 26px; transform: none; }
   .app { max-width: 1120px; padding-bottom: 56px; }
   .top { padding: 24px 0 16px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
-  .settings { max-width: 640px; }
+  .settings { max-width: 640px; margin-inline: auto; }
   .chips.scroll { flex-wrap: wrap; overflow: visible; }
   .desk { display: grid; gap: 22px; }
   .desk-cols { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: start; }
