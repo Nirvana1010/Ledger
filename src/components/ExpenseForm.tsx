@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Config, Expense, Split } from '../lib/types';
 import { centsToInput, fmt, parseAmount } from '../lib/money';
 import { computeShares } from '../lib/settle';
@@ -30,13 +30,46 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout
   const [participants, setParticipants] = useState<string[]>(
     initial?.split.type === 'equal' ? initial.split.participants : allIds,
   );
+  const twoWay = members.length === 2;
   const [weights, setWeights] = useState<Record<string, string>>(() =>
-    Object.fromEntries(allIds.map((id) => [id, initial?.split.type === 'ratio' ? String(initial.split.weights[id] ?? 0) : '1'])),
+    Object.fromEntries(allIds.map((id) => [
+      id,
+      initial?.split.type === 'ratio' ? String(initial.split.weights[id] ?? 0) : twoWay ? '50' : '1',
+    ])),
   );
+  /** 两人时被自动算出来的那一格，金额变了要跟着重算 */
+  const [derivedId, setDerivedId] = useState<string | null>(null);
   const [exacts, setExacts] = useState<Record<string, string>>(() =>
     Object.fromEntries(allIds.map((id) => [id, initial?.split.type === 'exact' && initial.split.amounts[id] ? centsToInput(initial.split.amounts[id]) : ''])),
   );
   const [error, setError] = useState<string | null>(null);
+
+  const otherOf = (id: string) => members.find((m) => m.id !== id);
+
+  const changeWeight = (id: string, text: string) => {
+    const next = { ...weights, [id]: text };
+    const other = otherOf(id);
+    if (twoWay && other) {
+      const v = Number(text);
+      if (text.trim() !== '' && Number.isFinite(v) && v >= 0 && v <= 100) {
+        next[other.id] = String(Math.round((100 - v) * 100) / 100);
+      }
+    }
+    setWeights(next);
+  };
+
+  const changeExact = (id: string, text: string) => {
+    const next = { ...exacts, [id]: text };
+    const other = otherOf(id);
+    if (twoWay && other) {
+      const v = parseAmount(text || '0');
+      if (amount && amount > 0 && v !== null && v >= 0 && v <= amount) {
+        next[other.id] = centsToInput(amount - v);
+        setDerivedId(other.id);
+      }
+    }
+    setExacts(next);
+  };
 
   const amount = parseAmount(amountText);
   const showsExpr = /[+\-]/.test(amountText.replace(/^-/, '')) && amount !== null;
@@ -51,6 +84,29 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout
 
   const exactSum = split.type === 'exact' ? Object.values(split.amounts).reduce((a, b) => a + b, 0) : 0;
   const preview = amount && amount > 0 ? computeShares({ amount, split }) : {};
+
+  const ratioPct = (id: string): number | null => {
+    if (split.type !== 'ratio') return null;
+    const W = Object.values(split.weights).reduce((a, b) => a + b, 0);
+    return W > 0 ? Math.round(((split.weights[id] ?? 0) / W) * 100) : null;
+  };
+  /** 比例模式下没填金额也能看出分法，避免「1 : 1」看着像没设置 */
+  const shareLabel = (id: string): string => {
+    const pct = ratioPct(id);
+    const amt = preview[id];
+    if (pct !== null) return amt ? `${pct}% · ${fmt(amt, config.currency)}` : `${pct}%`;
+    return amt ? fmt(amt, config.currency) : '';
+  };
+
+  useEffect(() => {
+    if (mode !== 'exact' || !twoWay || !derivedId || !amount || amount <= 0) return;
+    const other = otherOf(derivedId);
+    if (!other) return;
+    const v = parseAmount(exacts[other.id] || '0');
+    if (v === null || v < 0 || v > amount) return;
+    const want = centsToInput(amount - v);
+    if (exacts[derivedId] !== want) setExacts((x) => ({ ...x, [derivedId]: want }));
+  }, [amount, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function validate(): string | null {
     if (amount === null) return '金额格式不对，可以写 45.8 或 30+15.8 这样的算式。';
@@ -83,6 +139,7 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout
       setNote('');
       setMode('equal');
       setParticipants(allIds);
+      setDerivedId(null);
       setPayerId(allIds.includes(meId) ? meId : allIds[0]);
       setError(null);
     }
@@ -166,19 +223,31 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout
           <span className="field-label">怎么分</span>
           {modeSwitch}
           {mode === 'equal' && <span className="bar-shares num">{shareText}</span>}
-          {mode !== 'equal' && members.map((m) => (
+          {mode === 'ratio' && members.map((m) => (
             <span key={m.id} className="bar-weight">
               <label htmlFor={`w-${m.id}`}>{m.name}</label>
-              {mode === 'ratio' ? (
-                <input id={`w-${m.id}`} className="small" inputMode="decimal"
-                  value={weights[m.id] ?? ''} onChange={(e) => setWeights({ ...weights, [m.id]: e.target.value })} />
-              ) : (
-                <input id={`w-${m.id}`} className="small" inputMode="decimal" placeholder="0"
-                  value={exacts[m.id] ?? ''} onChange={(e) => setExacts({ ...exacts, [m.id]: e.target.value })} />
-              )}
-              <span className="num muted">{preview[m.id] ? fmt(preview[m.id], config.currency) : '—'}</span>
+              <input id={`w-${m.id}`} className="small" inputMode="decimal"
+                value={weights[m.id] ?? ''} onChange={(e) => changeWeight(m.id, e.target.value)} />
+              {twoWay && <span className="unit">%</span>}
+              <span className="num muted">{twoWay ? (preview[m.id] ? fmt(preview[m.id], config.currency) : '') : shareLabel(m.id)}</span>
             </span>
           ))}
+          {mode === 'exact' && members.map((m) => (
+            <span key={m.id} className="bar-weight">
+              <label htmlFor={`w-${m.id}`}>{m.name}</label>
+              <span className="exact-input">
+                <span aria-hidden>{config.currency}</span>
+                <input id={`w-${m.id}`} className="small" inputMode="decimal" placeholder="0"
+                  value={exacts[m.id] ?? ''} onChange={(e) => changeExact(m.id, e.target.value)} />
+              </span>
+            </span>
+          ))}
+          {mode === 'exact' && (
+            <span className={`num ${amount && exactSum !== amount ? 'neg' : 'muted'}`}>
+              合计 {fmt(exactSum, config.currency)}
+              {amount ? ` / ${fmt(amount, config.currency)}` : ''}
+            </span>
+          )}
           {mode === 'equal' && members.length > 1 && (
             <span className="bar-quick">
               {members.map((m) => (
@@ -251,13 +320,13 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout
               )}
               {mode === 'ratio' && (
                 <input className="small" inputMode="decimal" aria-label={`${m.name} 的比例`}
-                  value={weights[m.id] ?? ''} onChange={(e) => setWeights({ ...weights, [m.id]: e.target.value })} />
+                  value={weights[m.id] ?? ''} onChange={(e) => changeWeight(m.id, e.target.value)} />
               )}
               {mode === 'exact' && (
                 <input className="small" inputMode="decimal" placeholder="0" aria-label={`${m.name} 承担的金额`}
-                  value={exacts[m.id] ?? ''} onChange={(e) => setExacts({ ...exacts, [m.id]: e.target.value })} />
+                  value={exacts[m.id] ?? ''} onChange={(e) => changeExact(m.id, e.target.value)} />
               )}
-              <span className="share">{preview[m.id] ? fmt(preview[m.id], config.currency) : '—'}</span>
+              <span className="share">{shareLabel(m.id) || '—'}</span>
             </li>
           ))}
         </ul>

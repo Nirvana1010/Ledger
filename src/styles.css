@@ -279,6 +279,10 @@ thead th { color: var(--muted); font-weight: 400; font-size: .8125rem; }
 .bar-shares { color: var(--ink); }
 .bar-weight { display: inline-flex; align-items: center; gap: 7px; }
 .bar-weight input.small { width: 74px; min-height: 32px; }
+.bar-weight .unit { color: var(--muted); margin-left: -3px; }
+.exact-input { display: inline-flex; align-items: center; gap: 3px; }
+.exact-input span { color: var(--muted); }
+.exact-input input.small { width: 84px; }
 .bar-weight .muted { color: var(--muted); }
 .bar-quick { display: inline-flex; gap: 14px; }
 .bar .error { flex-basis: 100%; }
