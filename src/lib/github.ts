@@ -110,4 +110,5 @@ export class Store {
 }
 
 export const CONFIG_PATH = 'config.json';
+export const SETTLEMENTS_PATH = 'settlements.json';
 export const monthPath = (month: string) => `months/${month}.json`;

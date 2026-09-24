@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Config, Expense, MonthData, Settings } from './lib/types';
-import { CONFIG_PATH, Store, monthPath } from './lib/github';
+import type { Config, Expense, MonthData, Payment, Settings, Settlements } from './lib/types';
+import { CONFIG_PATH, SETTLEMENTS_PATH, Store, monthPath } from './lib/github';
 import { currentMonth, defaultDateFor, monthLabel, monthOf, shiftMonth } from './lib/dates';
 import { fmt } from './lib/money';
 import { ExpenseForm } from './components/ExpenseForm';
@@ -8,8 +8,9 @@ import { ExpenseList } from './components/ExpenseList';
 import { Summary } from './components/Summary';
 import { SettingsView } from './components/SettingsView';
 import { Sidebar } from './components/Sidebar';
+import { BalancePage } from './components/BalancePage';
 
-type Tab = 'add' | 'list' | 'settle' | 'settings';
+type Tab = 'add' | 'list' | 'settle' | 'settings' | 'balance';
 const TABS: [Tab, string][] = [['add', '记一笔'], ['list', '明细'], ['settle', '结算'], ['settings', '设置']];
 
 function useMedia(query: string): boolean {
@@ -35,6 +36,7 @@ function loadSettings(): Settings {
     return emptySettings;
   }
 }
+const emptySettlements = (): Settlements => ({ version: 1, startDate: null, payments: [] });
 const emptyMonth = (month: string): MonthData => ({ version: 1, month, expenses: [], settledAt: null, settledBy: null });
 
 export default function App() {
@@ -60,7 +62,9 @@ export default function App() {
   const [sideOpen, setSideOpen] = useState(() => localStorage.getItem(SIDEBAR_KEY) !== 'closed');
   const [months, setMonths] = useState<string[]>([]);
   const [monthTotals, setMonthTotals] = useState<Record<string, number>>({});
-  const [monthSettled, setMonthSettled] = useState<Record<string, boolean>>({});
+  const [settlements, setSettlements] = useState<Settlements>(emptySettlements);
+  const [monthsData, setMonthsData] = useState<Record<string, MonthData>>({});
+  const [balanceLoading, setBalanceLoading] = useState(false);
   const showSide = wide && roomy && sideOpen && tab !== 'settings';
 
   const toggleSide = (open: boolean) => {
@@ -85,7 +89,6 @@ export default function App() {
     setMonths((list) => (list.includes(m) ? list : [...list, m].sort((a, b) => b.localeCompare(a))));
     if (!d) return;
     setMonthTotals((t) => ({ ...t, [m]: d.expenses.reduce((a, e) => a + e.amount, 0) }));
-    setMonthSettled((x) => ({ ...x, [m]: !!d.settledAt }));
   }, []);
 
   const loadConfig = useCallback(async () => {
@@ -117,6 +120,38 @@ export default function App() {
     }
   }, [store, month, noteMonth]);
 
+  const loadSettlements = useCallback(async () => {
+    if (!store) return;
+    try {
+      const r = await store.read<Settlements>(SETTLEMENTS_PATH);
+      setSettlements(r?.data ?? emptySettlements());
+    } catch { /* 还没结算过就是空的 */ }
+  }, [store]);
+
+  /** 结算页要算跨月余额，把所有月份的文件都拉下来 */
+  const loadAllMonths = useCallback(async () => {
+    if (!store) return;
+    setBalanceLoading(true);
+    try {
+      const list = await store.listMonths();
+      setMonths(list);
+      const entries = await Promise.all(list.map(async (m) => {
+        try {
+          const r = await store.read<MonthData>(monthPath(m));
+          return r ? ([m, r.data] as const) : null;
+        } catch { return null; }
+      }));
+      const map: Record<string, MonthData> = {};
+      for (const e of entries) if (e) map[e[0]] = e[1];
+      setMonthsData(map);
+      setMonthTotals((t) => ({ ...t, ...Object.fromEntries(Object.entries(map).map(([m, d]) => [m, d.expenses.reduce((a, x) => a + x.amount, 0)])) }));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBalanceLoading(false);
+    }
+  }, [store]);
+
   const loadMonths = useCallback(async () => {
     if (!store) return;
     try {
@@ -130,20 +165,18 @@ export default function App() {
         } catch { return [m, undefined] as const; }
       }));
       const totals: Record<string, number> = {};
-      const settled: Record<string, boolean> = {};
       for (const [m, d] of results) {
         if (!d) continue;
         totals[m] = d.expenses.reduce((a, e) => a + e.amount, 0);
-        settled[m] = !!d.settledAt;
       }
       setMonthTotals((t) => ({ ...t, ...totals }));
-      setMonthSettled((x) => ({ ...x, ...settled }));
     } catch { /* 侧栏是附加信息，失败就不显示总额 */ }
   }, [store]);
 
   useEffect(() => { if (showSide) loadMonths(); }, [showSide, loadMonths]);
 
-  useEffect(() => { setConfig(null); setConfigMissing(false); loadConfig(); }, [loadConfig]);
+  useEffect(() => { setConfig(null); setConfigMissing(false); loadConfig(); loadSettlements(); }, [loadConfig, loadSettlements]);
+  useEffect(() => { if (tab === 'balance') { loadAllMonths(); loadSettlements(); } }, [tab, loadAllMonths, loadSettlements]);
   useEffect(() => { setData(null); loadMonth(); }, [loadMonth]);
 
   // 切回页面时静默刷新，拿到对方刚记的账
@@ -171,7 +204,6 @@ export default function App() {
     if (!store || !config) return false;
     const to = monthOf(e.date);
     const from = original ? monthOf(original.date) : null;
-    if (!original && data?.settledAt && to === month && !confirm('这个月已经标记为结清，还要继续记账吗？')) return false;
     const summary = `${e.category} ${fmt(e.amount, config.currency)}`;
     const ok = await run(async () => {
       if (from && from !== to) {
@@ -207,14 +239,33 @@ export default function App() {
     if (next) { noteMonth(m, next); if (m === month) setData(next); flash('已删除'); }
   }
 
-  async function toggleSettled() {
+  async function savePayment(p: Payment): Promise<boolean> {
+    if (!store || !config) return false;
+    const next = await run(() => store.update<Settlements>(SETTLEMENTS_PATH, emptySettlements, (d) => {
+      const list = d.payments ?? [];
+      const i = list.findIndex((x) => x.id === p.id);
+      if (i >= 0) list[i] = p; else list.push(p);
+      list.sort((a, b) => a.date.localeCompare(b.date));
+      return { ...d, payments: list };
+    }, `${meName}: ${p.from === settings.meId ? '转出' : '收到'} ${fmt(p.amount, config.currency)}`));
+    if (next) { setSettlements(next); flash(p.updatedAt ? '已保存修改' : '已记下转账'); }
+    return !!next;
+  }
+
+  async function deletePayment(p: Payment) {
+    if (!store || !config) return;
+    if (!confirm(`删除这笔 ${fmt(p.amount, config.currency)} 的转账？余额会跟着变。`)) return;
+    const next = await run(() => store.update<Settlements>(SETTLEMENTS_PATH, emptySettlements,
+      (d) => ({ ...d, payments: (d.payments ?? []).filter((x) => x.id !== p.id) }),
+      `${meName}: 删除一笔转账`));
+    if (next) { setSettlements(next); flash('已删除'); }
+  }
+
+  async function setStartDate(d: string | null) {
     if (!store) return;
-    const next = await run(() => store.update<MonthData>(monthPath(month), () => emptyMonth(month), (d) => ({
-      ...d,
-      settledAt: d.settledAt ? null : new Date().toISOString(),
-      settledBy: d.settledAt ? null : settings.meId || null,
-    }), `${meName}: ${data?.settledAt ? '撤销结清' : '结清'} ${month}`));
-    if (next) { setData(next); noteMonth(month, next); flash(next.settledAt ? '已标记为结清' : '已撤销结清'); }
+    const next = await run(() => store.update<Settlements>(SETTLEMENTS_PATH, emptySettlements,
+      (s0) => ({ ...s0, startDate: d }), `${meName}: 设置对账起点 ${d ?? '不限'}`));
+    if (next) { setSettlements(next); flash('已更新对账起点'); }
   }
 
   async function saveConfig(c: Config): Promise<boolean> {
@@ -235,8 +286,10 @@ export default function App() {
     <div className={`app ${showSide ? 'with-side' : ''}`}>
       {showSide && config && (
         <Sidebar months={months}
-          totals={data ? { ...monthTotals, [month]: data.expenses.reduce((a, e) => a + e.amount, 0) } : monthTotals} settled={data ? { ...monthSettled, [month]: !!data.settledAt } : monthSettled} month={month} config={config}
-          meName={meName} onPick={setMonth} onCollapse={() => toggleSide(false)} onSettings={() => setTab('settings')} />
+          totals={data ? { ...monthTotals, [month]: data.expenses.reduce((a, e) => a + e.amount, 0) } : monthTotals} month={month} config={config}
+          meName={meName} onPick={(m) => { setMonth(m); setTab('add'); }} onCollapse={() => toggleSide(false)}
+          onSettings={() => setTab('settings')}
+          balanceActive={tab === 'balance'} onBalance={() => setTab('balance')} />
       )}
       <div className="app-body">
       <header className="top">
@@ -266,7 +319,6 @@ export default function App() {
             disabled={k !== 'settings' && !ready}
             onClick={() => { setTab(k); setEditing(null); }}>
             {label}
-            {k === 'settle' && data?.settledAt && <span className="dot" aria-label="已结清" />}
           </button>
         ))}
       </nav>
@@ -285,11 +337,12 @@ export default function App() {
             <button className="link" onClick={() => setTab('settings')}>去设置</button>
           </div>
         )}
-        {data?.settledAt && (tab === 'add' || wide) && (
-          <div className="banner quiet"><span>{monthLabel(month)} 已结清。</span></div>
-        )}
 
-        {tab === 'settings' || !connected ? (
+        {tab === 'balance' && connected && config ? (
+          <BalancePage config={config} meId={settings.meId} monthsData={monthsData} settlements={settlements}
+            loading={balanceLoading} saving={saving} onSavePayment={savePayment} onDeletePayment={deletePayment}
+            onSetStartDate={setStartDate} onBack={() => setTab(wide ? 'add' : 'settle')} />
+        ) : tab === 'settings' || !connected ? (
           <SettingsView settings={settings} config={config} configMissing={configMissing} saving={saving}
             onSaveSettings={saveSettings} onSaveConfig={saveConfig} />
         ) : !ready ? (
@@ -305,7 +358,7 @@ export default function App() {
                 <ExpenseList config={config} data={data} variant="table" onEdit={setEditing} onDelete={deleteExpense} />
               </section>
               <section className="desk-aside">
-                <Summary config={config} data={data} saving={saving} onToggleSettled={toggleSettled} compact />
+                <Summary config={config} data={data} saving={saving} onOpenBalance={() => setTab('balance')} compact />
               </section>
             </div>
           </div>
@@ -321,7 +374,7 @@ export default function App() {
         ) : tab === 'list' ? (
           <ExpenseList config={config} data={data} onEdit={setEditing} onDelete={deleteExpense} />
         ) : (
-          <Summary config={config} data={data} saving={saving} onToggleSettled={toggleSettled} />
+          <Summary config={config} data={data} saving={saving} onOpenBalance={() => setTab('balance')} />
         )}
       </main>
 

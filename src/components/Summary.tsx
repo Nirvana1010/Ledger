@@ -9,10 +9,10 @@ type Props = {
   saving: boolean;
   /** compact = 电脑右侧窄栏，图表和表格都收窄 */
   compact?: boolean;
-  onToggleSettled: () => void;
+  onOpenBalance: () => void;
 };
 
-export function Summary({ config, data, saving, compact = false, onToggleSettled }: Props) {
+export function Summary({ config, data, compact = false, onOpenBalance }: Props) {
   const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '已移除';
   const c = config.currency;
   const balances = computeBalances(data.expenses, config.members);
@@ -22,7 +22,7 @@ export function Summary({ config, data, saving, compact = false, onToggleSettled
 
   return (
     <div className={`summary ${compact ? 'compact' : ''}`}>
-      <section className={`verdict ${data.settledAt ? 'settled' : ''}`} aria-live="polite">
+      <section className="verdict" aria-live="polite">
         {!data.expenses.length ? (
           <p className="verdict-empty">这个月还没有支出，没有需要结算的。</p>
         ) : transfers.length === 0 ? (
@@ -39,12 +39,8 @@ export function Summary({ config, data, saving, compact = false, onToggleSettled
         )}
         {data.expenses.length > 0 && (
           <div className="verdict-foot">
-            {data.settledAt
-              ? <span>已于 {new Date(data.settledAt).toLocaleDateString('zh-CN')} 结清{data.settledBy ? `（${name(data.settledBy)}）` : ''}</span>
-              : <span>本月共 {data.expenses.length} 笔，{fmt(total, c)}</span>}
-            <button className="ghost" disabled={saving} onClick={onToggleSettled}>
-              {data.settledAt ? '撤销结清' : '标记为已结清'}
-            </button>
+            <span>本月 {data.expenses.length} 笔，{fmt(total, c)}</span>
+            <button className="ghost" onClick={onOpenBalance}>看累计余额</button>
           </div>
         )}
       </section>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeBalances, computeShares, computeTransfers } from './settle';
+import { buildFlow, computeBalances, computeShares, computeTransfers } from './settle';
 import { parseAmount } from './money';
 import type { Expense } from './types';
 
@@ -42,5 +42,33 @@ describe('parseAmount', () => {
     expect(parseAmount('23.5+12-3')).toBe(3250);
     expect(parseAmount('1,234.56')).toBe(123456);
     expect(parseAmount('abc')).toBeNull();
+  });
+});
+
+describe('累计余额', () => {
+  const md = (month: string, expenses: Expense[]) => ({ version: 1 as const, month, expenses });
+  it('转多了余额变成负的（对方反欠）', () => {
+    const flow = buildFlow(
+      {
+        '2026-07': md('2026-07', [ex({ date: '2026-07-10', amount: 200000, payerId: 'b', split: { type: 'equal', participants: ['a', 'b'] } })]),
+        '2026-08': md('2026-08', [ex({ date: '2026-08-10', amount: 100000, payerId: 'b', split: { type: 'equal', participants: ['a', 'b'] } })]),
+      },
+      [{ id: 'p1', date: '2026-07-31', from: 'a', to: 'b', amount: 500000, note: '', createdBy: 'a', createdAt: '' }],
+      'a',
+    );
+    // a 欠 1000 + 500，转了 5000 → 余额 -3500
+    expect(flow.balance).toBe(-350000);
+    expect(flow.paidTotal).toBe(500000);
+    expect(flow.rows[0].kind).toBe('month');
+  });
+  it('对账起点之前的都不算', () => {
+    const flow = buildFlow(
+      { '2026-07': md('2026-07', [ex({ date: '2026-07-01', amount: 200000, payerId: 'b', split: { type: 'equal', participants: ['a', 'b'] } })]) },
+      [{ id: 'p1', date: '2026-07-01', from: 'a', to: 'b', amount: 100000, note: '', createdBy: 'a', createdAt: '' }],
+      'a',
+      '2026-08-01',
+    );
+    expect(flow.balance).toBe(0);
+    expect(flow.rows).toHaveLength(1);
   });
 });

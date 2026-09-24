@@ -324,3 +324,58 @@ thead th { color: var(--muted); font-weight: 400; font-size: .8125rem; }
 .summary.compact .legend { min-width: 0; }
 .summary.compact table { font-size: .875rem; }
 .summary.compact th, .summary.compact td { padding: 7px 4px; }
+
+/* 结算页 */
+.balance { display: flex; flex-direction: column; gap: 20px; }
+.balance-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.balance-head h2 { font-size: 1.3125rem; margin: 0; }
+.balance-cols { display: grid; gap: 22px; }
+.balance-main { display: grid; gap: 22px; min-width: 0; }
+.balance-aside { display: grid; gap: 16px; align-content: start; }
+.balance .verdict-foot { gap: 16px; }
+.balance .verdict-foot strong { color: var(--ink); }
+.balance .verdict-foot .primary { margin-left: auto; }
+.side-settle { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--line); padding-top: 14px; }
+
+.flow-head, .flow-row {
+  display: grid; grid-template-columns: 116px minmax(0, 1fr) 116px 128px; gap: 12px; align-items: center;
+}
+.flow-head { padding: 9px 16px; border-bottom: 1px solid var(--line); font-size: .75rem; color: var(--muted); }
+.flow-row { padding: 11px 16px; border-bottom: 1px solid var(--line); font-size: .875rem; }
+.flow-row:last-child { border-bottom: 0; }
+.flow-row.pay { background: var(--accent-soft); }
+.flow-row .right { text-align: right; }
+.flow-row .strong { font-weight: 600; }
+.flow-row .accent { color: var(--accent); }
+.flow-row .link { font-size: .875rem; }
+
+.card-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--sheet); border: 1px solid var(--line); border-radius: 13px; padding: 13px 15px; }
+.card-row-label { display: flex; flex-direction: column; gap: 2px; }
+.card-row-label small { font-size: .75rem; color: var(--muted); }
+.card-row-actions { display: flex; gap: 8px; }
+.primary.small { min-height: 36px; padding: 0 14px; font-size: .875rem; }
+.month-nets { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; font-size: .875rem; }
+.month-nets li { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.month-nets .accent { color: var(--accent); }
+
+/* 转账弹窗 */
+.modal-back { position: fixed; inset: 0; background: rgba(36, 27, 32, .3); display: grid; place-items: center; padding: 20px; z-index: 20; }
+.modal { width: min(560px, 100%); max-height: 90vh; overflow-y: auto; background: var(--sheet); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 24px 60px rgba(36, 27, 32, .24); padding: 22px; display: flex; flex-direction: column; gap: 16px; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.modal-head h2 { font-size: 1.0625rem; margin: 0; }
+.modal .amount-input { align-items: center; }
+.modal .amount-input input { font-size: 2rem; }
+.modal .amount-input .ghost.small { margin-left: auto; white-space: nowrap; }
+.direction { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--paper); min-height: 44px; }
+.direction .muted { color: var(--muted); }
+.direction .icon { margin-left: auto; min-width: 28px; height: 28px; color: var(--accent); }
+.preview { display: grid; gap: 8px; background: var(--accent-soft); border-radius: 11px; padding: 13px 15px; font-size: .875rem; }
+.preview > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.preview .muted { color: var(--muted); }
+.preview .after .num { font-weight: 600; color: var(--accent); }
+.modal-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
+.modal-foot .danger { color: var(--debt); margin-right: auto; }
+
+@media (min-width: 1000px) {
+  .balance-cols { grid-template-columns: minmax(0, 1fr) 300px; align-items: start; }
+}

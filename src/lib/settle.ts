@@ -75,3 +75,110 @@ export function categoryTotals(expenses: Expense[]): { category: string; total: 
   for (const e of expenses) m.set(e.category, (m.get(e.category) ?? 0) + e.amount);
   return [...m.entries()].map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total);
 }
+
+// ——— 累计余额 ———
+
+import type { MonthData, Payment } from './types';
+
+/** 某人在一批支出里净增加的欠款：应承担 − 实际付出 */
+export function debtDelta(expenses: Expense[], memberId: string): number {
+  let owed = 0;
+  let paid = 0;
+  for (const e of expenses) {
+    if (e.payerId === memberId) paid += e.amount;
+    owed += computeShares(e)[memberId] ?? 0;
+  }
+  return owed - paid;
+}
+
+export type FlowRow = {
+  kind: 'month' | 'payment' | 'start';
+  key: string;
+  date: string;
+  label: string;
+  sub: string;
+  delta: number | null;
+  balance: number;
+  payment?: Payment;
+};
+
+export type Flow = {
+  rows: FlowRow[]; // 倒序，最新在上
+  balance: number; // 正数 = meId 欠别人，负数 = 别人欠 meId
+  expenseTotal: number;
+  paidTotal: number;
+  byMonth: { month: string; delta: number }[];
+};
+
+/** 把每月支出净额和每笔转账按时间串成一条流水，算出滚动余额 */
+export function buildFlow(
+  monthsData: Record<string, MonthData>,
+  payments: Payment[],
+  meId: string,
+  startDate?: string | null,
+): Flow {
+  const monthEvents = Object.values(monthsData)
+    .filter((d) => d.expenses.length)
+    .map((d) => {
+      const expenses = startDate ? d.expenses.filter((e) => e.date >= startDate) : d.expenses;
+      return { month: d.month, expenses, delta: debtDelta(expenses, meId) };
+    })
+    .filter((m) => m.expenses.length);
+
+  const pays = payments
+    .filter((p) => (!startDate || p.date >= startDate) && (p.from === meId || p.to === meId))
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  type Ev = { at: string; row: Omit<FlowRow, 'balance'> };
+  const events: Ev[] = [];
+
+  for (const m of monthEvents) {
+    events.push({
+      at: `${m.month}-31`,
+      row: {
+        kind: 'month', key: `m-${m.month}`, date: monthLabelShort(m.month),
+        label: `${Number(m.month.slice(5))} 月支出结算`, sub: `${m.expenses.length} 笔`, delta: m.delta,
+      },
+    });
+  }
+  for (const p of pays) {
+    const iPaid = p.from === meId;
+    events.push({
+      at: p.date,
+      row: {
+        kind: 'payment', key: `p-${p.id}`, date: dayLabelShort(p.date),
+        label: iPaid ? '我转出' : '我收到', sub: p.note, delta: iPaid ? -p.amount : p.amount, payment: p,
+      },
+    });
+  }
+
+  events.sort((a, b) => a.at.localeCompare(b.at));
+
+  let running = 0;
+  const rows: FlowRow[] = events.map((ev) => {
+    running += ev.row.delta ?? 0;
+    return { ...ev.row, balance: running };
+  });
+
+  if (startDate) {
+    rows.unshift({ kind: 'start', key: 'start', date: startDate, label: '对账起点', sub: '', delta: null, balance: 0 });
+  }
+
+  return {
+    rows: rows.reverse(),
+    balance: running,
+    expenseTotal: monthEvents.reduce((a, m) => a + m.expenses.reduce((x, e) => x + e.amount, 0), 0),
+    paidTotal: pays.reduce((a, p) => a + p.amount, 0),
+    byMonth: monthEvents.map((m) => ({ month: m.month, delta: m.delta })).sort((a, b) => b.month.localeCompare(a.month)),
+  };
+}
+
+function dayLabelShort(date: string): string {
+  return `${Number(date.slice(5, 7))} 月 ${Number(date.slice(8))} 日`;
+}
+
+function monthLabelShort(month: string): string {
+  const [y, m] = month.split('-');
+  return `${y} 年 ${Number(m)} 月`;
+}

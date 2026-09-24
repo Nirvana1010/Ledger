@@ -36,6 +36,26 @@ export type MonthData = {
   settledBy?: string | null;
 };
 
+/** 一次实际转账；余额由支出和转账共同算出，不单独存 */
+export type Payment = {
+  id: string;
+  date: string; // YYYY-MM-DD
+  from: string;
+  to: string;
+  amount: number; // 分
+  note: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type Settlements = {
+  version: 1;
+  /** 对账起点：这天之前的支出和转账都不计入当前余额 */
+  startDate?: string | null;
+  payments: Payment[];
+};
+
 export type Settings = {
   owner: string;
   repo: string;
