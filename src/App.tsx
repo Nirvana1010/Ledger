@@ -80,6 +80,14 @@ export default function App() {
     window.setTimeout(() => setToast((t) => (t === msg ? null : t)), 2400);
   };
 
+  /** 某个月的数据变了就同步侧栏：列表、总额、结清状态 */
+  const noteMonth = useCallback((m: string, d: MonthData | null) => {
+    setMonths((list) => (list.includes(m) ? list : [...list, m].sort((a, b) => b.localeCompare(a))));
+    if (!d) return;
+    setMonthTotals((t) => ({ ...t, [m]: d.expenses.reduce((a, e) => a + e.amount, 0) }));
+    setMonthSettled((x) => ({ ...x, [m]: !!d.settledAt }));
+  }, []);
+
   const loadConfig = useCallback(async () => {
     if (!store) return;
     try {
@@ -99,15 +107,15 @@ export default function App() {
       const r = await store.read<MonthData>(monthPath(month));
       const d = r?.data ?? emptyMonth(month);
       setData(d);
-      setMonthTotals((t) => ({ ...t, [month]: d.expenses.reduce((a, e) => a + e.amount, 0) }));
-      setMonthSettled((x) => ({ ...x, [month]: !!d.settledAt }));
+      // 仓库里还没有这个月的文件就先不进侧栏列表，免得出现一堆 $0.00 的空月份
+      if (r) noteMonth(month, d);
       setError(null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [store, month]);
+  }, [store, month, noteMonth]);
 
   const loadMonths = useCallback(async () => {
     if (!store) return;
@@ -169,6 +177,7 @@ export default function App() {
       if (from && from !== to) {
         const removed = await store.update<MonthData>(monthPath(from), () => emptyMonth(from),
           (d) => ({ ...d, expenses: d.expenses.filter((x) => x.id !== e.id) }), `${meName}: 移动 ${summary} 到 ${to}`);
+        noteMonth(from, removed);
         if (from === month) setData(removed);
       }
       const next = await store.update<MonthData>(monthPath(to), () => emptyMonth(to), (d) => {
@@ -177,6 +186,7 @@ export default function App() {
         d.expenses.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
         return d;
       }, `${meName}: ${original ? '修改' : '新增'} ${summary}`);
+      noteMonth(to, next);
       if (to === month) setData(next);
       return true;
     });
@@ -194,7 +204,7 @@ export default function App() {
     const next = await run(() => store.update<MonthData>(monthPath(m), () => emptyMonth(m),
       (d) => ({ ...d, expenses: d.expenses.filter((x) => x.id !== e.id) }),
       `${meName}: 删除 ${e.category} ${fmt(e.amount, config.currency)}`));
-    if (next) { setData(next); flash('已删除'); }
+    if (next) { noteMonth(m, next); if (m === month) setData(next); flash('已删除'); }
   }
 
   async function toggleSettled() {
@@ -204,7 +214,7 @@ export default function App() {
       settledAt: d.settledAt ? null : new Date().toISOString(),
       settledBy: d.settledAt ? null : settings.meId || null,
     }), `${meName}: ${data?.settledAt ? '撤销结清' : '结清'} ${month}`));
-    if (next) { setData(next); flash(next.settledAt ? '已标记为结清' : '已撤销结清'); }
+    if (next) { setData(next); noteMonth(month, next); flash(next.settledAt ? '已标记为结清' : '已撤销结清'); }
   }
 
   async function saveConfig(c: Config): Promise<boolean> {
@@ -231,20 +241,15 @@ export default function App() {
       <div className="app-body">
       <header className="top">
         {!showSide && <h1>账本</h1>}
-        {showSide && (
-          <h1 className="top-month">{monthLabel(month)}</h1>
-        )}
         {connected && config && (
           <div className="month-nav">
             {wide && roomy && !sideOpen && tab !== 'settings' && (
               <button className="icon" onClick={() => toggleSide(true)} aria-label="展开侧栏">»</button>
             )}
-            {!showSide && <>
-              <button className="icon" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="上个月">‹</button>
-              <button className="month" onClick={() => setMonth(currentMonth())} title="回到本月">{monthLabel(month)}</button>
-              <button className="icon" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="下个月">›</button>
-            </>}
-            <button className="icon refresh" onClick={() => { loadMonth(); loadConfig(); }} aria-label="刷新" disabled={loading}>↻</button>
+            <button className="icon" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="上个月">‹</button>
+            <button className={`month ${showSide ? 'big' : ''}`} onClick={() => setMonth(currentMonth())} title="回到本月">{monthLabel(month)}</button>
+            <button className="icon" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="下个月">›</button>
+            <button className="icon refresh" onClick={() => { loadMonth(); loadConfig(); if (showSide) loadMonths(); }} aria-label="刷新" disabled={loading}>↻</button>
             {wide && (
               <button className="ghost small" onClick={() => setTab(tab === 'settings' ? 'add' : 'settings')}>
                 {tab === 'settings' ? '返回账本' : '设置'}

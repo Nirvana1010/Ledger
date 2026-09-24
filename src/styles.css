@@ -217,7 +217,10 @@ thead th { color: var(--muted); font-weight: 400; font-size: .8125rem; }
 /* 电脑布局 */
 .ghost.small { min-height: 36px; padding: 0 14px; font-size: .875rem; font-weight: 400; }
 .block-title { font-size: .9375rem; font-weight: 600; margin: 0 0 10px; }
-.top-month { font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.month.big { font-size: 1.3125rem; font-weight: 700; padding-left: 4px; }
+.app.with-side .top { justify-content: flex-start; }
+.app.with-side .month-nav { width: 100%; }
+.app.with-side .month-nav .refresh { margin-left: auto; }
 
 @media (min-width: 1000px) {
   .toast { left: auto; right: 28px; top: auto; bottom: 26px; transform: none; }
