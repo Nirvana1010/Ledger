@@ -129,6 +129,12 @@ function ConfigEditor({ config, saving, onSave }: { config: Config; saving: bool
   const dirty = JSON.stringify([members, books, currency, icons])
     !== JSON.stringify([config.members, allBooks(config), config.currency, config.categoryIcons ?? {}]);
 
+  const blocked =
+    members.some((m) => !m.name.trim()) ? '成员名字不能留空。'
+      : books.some((b) => !b.archived && !b.name.trim()) ? '账本名字不能留空。'
+        : books.some((b) => !b.archived && !b.categories.length) ? '每个账本至少要有一个分类。'
+          : null;
+
   const patch = (id: string, change: Partial<Book>) =>
     setBooks(books.map((b) => (b.id === id ? { ...b, ...change } : b)));
 
@@ -233,15 +239,17 @@ function ConfigEditor({ config, saving, onSave }: { config: Config; saving: bool
 
         <div className="actions start">
           <button className="ghost" onClick={() => setBooks([...books, {
-            id: newBookId(books), name: '', color: BOOK_COLORS.find((c) => !books.some((b) => b.color === c.id))?.id ?? 'indigo',
+            id: newBookId(books), name: `账本 ${books.filter((b) => !b.archived).length + 1}`, color: BOOK_COLORS.find((c) => !books.some((b) => b.color === c.id))?.id ?? 'indigo',
             mode: 'running', categories: HOUSE_CATEGORIES,
           }])}>＋ 新建账本</button>
         </div>
         <p className="hint">新账本默认是累计视图，分类给了一套房子相关的，可以随便改。</p>
       </section>
 
+      {dirty && blocked && <p className="error" role="alert">{blocked}</p>}
+
       <div className="actions">
-        <button className="primary" disabled={!dirty || saving || members.some((m) => !m.name.trim()) || books.some((b) => !b.name.trim() || !b.categories.length)}
+        <button className="primary" disabled={!dirty || saving || !!blocked}
           onClick={() => onSave({
             ...config,
             members: members.map((m) => ({ ...m, name: m.name.trim() })),
