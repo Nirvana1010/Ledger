@@ -14,11 +14,15 @@ type Props = {
   saving: boolean;
   /** stack = 手机的竖排表单；bar = 电脑顶部的常驻输入条 */
   layout?: 'stack' | 'bar';
+  /** 编辑时可以把这笔挪到别的账本 */
+  books?: { id: string; name: string }[];
+  bookId?: string;
+  onMoveBook?: (bookId: string) => void;
   onSave: (e: Expense, original?: Expense) => Promise<boolean>;
   onCancel?: () => void;
 };
 
-export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout = 'stack', onSave, onCancel }: Props) {
+export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout = 'stack', books, bookId, onMoveBook, onSave, onCancel }: Props) {
   const members = config.members;
   const allIds = members.map((m) => m.id);
   const [amountText, setAmountText] = useState(initial ? centsToInput(initial.amount) : '');
@@ -260,6 +264,15 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout
           )}
           {showsExpr && <span className="hint">= {fmt(amount!, config.currency)}</span>}
         </div>
+
+        {initial && books && books.length > 1 && bookId && onMoveBook && (
+          <div className="bar-split">
+            <span className="field-label">账本</span>
+            <select value={bookId} onChange={(e) => onMoveBook(e.target.value)} className="book-select">
+              {books.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
+        )}
 
         {error && <p className="error" role="alert">{error}</p>}
       </form>

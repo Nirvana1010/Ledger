@@ -19,13 +19,28 @@ export type Expense = {
   updatedAt?: string;
 };
 
+export type BookColor = 'plum' | 'ochre' | 'indigo' | 'olive' | 'violet' | 'brick';
+
+export type Book = {
+  id: string;
+  name: string;
+  color: BookColor;
+  /** monthly = 按月过日子；running = 从头累计（装修、买房这种） */
+  mode: 'monthly' | 'running';
+  categories: string[];
+  /** 删除的账本只归档，数据留在仓库里 */
+  archived?: boolean;
+};
+
 export type Config = {
   version: 1;
   currency: string;
   members: Member[];
+  /** 旧结构：默认账本的分类。有 books 时以 books 里的为准 */
   categories: string[];
   /** 分类 → 图标名；没指定的分类走内置默认表 */
   categoryIcons?: Record<string, string>;
+  books?: Book[];
 };
 
 export type MonthData = {

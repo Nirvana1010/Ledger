@@ -53,9 +53,10 @@ export class Store {
     return { private: !!j.private, canWrite: j.permissions ? !!j.permissions.push : true };
   }
 
-  /** 列出 months/ 下已有的月份，倒序 */
-  async listMonths(): Promise<string[]> {
-    const r = await fetch(`${API}/repos/${encodeURIComponent(this.s.owner)}/${encodeURIComponent(this.s.repo)}/contents/months?ref=${encodeURIComponent(this.s.branch)}`, {
+  /** 列出某个账本下已有的月份，倒序 */
+  async listMonths(bookId: string): Promise<string[]> {
+    const dir = monthsDir(bookId);
+    const r = await fetch(`${API}/repos/${encodeURIComponent(this.s.owner)}/${encodeURIComponent(this.s.repo)}/contents/${dir}?ref=${encodeURIComponent(this.s.branch)}`, {
       headers: this.headers(), cache: 'no-store',
     });
     if (r.status === 404) return [];
@@ -110,5 +111,10 @@ export class Store {
 }
 
 export const CONFIG_PATH = 'config.json';
-export const SETTLEMENTS_PATH = 'settlements.json';
-export const monthPath = (month: string) => `months/${month}.json`;
+/** 默认账本保持老路径，其他账本放在 books/<id>/ 下 */
+export const DEFAULT_BOOK = 'daily';
+export const monthsDir = (bookId: string) =>
+  bookId === DEFAULT_BOOK ? 'months' : `books/${bookId}/months`;
+export const monthPath = (month: string, bookId: string) => `${monthsDir(bookId)}/${month}.json`;
+export const settlementsPath = (bookId: string) =>
+  bookId === DEFAULT_BOOK ? 'settlements.json' : `books/${bookId}/settlements.json`;

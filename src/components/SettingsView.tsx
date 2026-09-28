@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import type { Config, Member, Settings } from '../lib/types';
+import type { Book, Config, Member, Settings } from '../lib/types';
+import { BOOK_COLORS, HOUSE_CATEGORIES, allBooks, newBookId } from '../lib/books';
+import { DEFAULT_BOOK } from '../lib/github';
 import { DEFAULT_CATEGORIES } from '../lib/types';
 import { Store } from '../lib/github';
 import { ICON_NAMES, Icon, iconFor, type IconName } from './icons';
@@ -113,89 +115,144 @@ function Setup({ saving, onCreate }: { saving: boolean; onCreate: (c: Config) =>
 
 function ConfigEditor({ config, saving, onSave }: { config: Config; saving: boolean; onSave: (c: Config) => Promise<boolean> }) {
   const [members, setMembers] = useState<Member[]>(config.members);
-  const [cats, setCats] = useState<string[]>(config.categories);
+  const [books, setBooks] = useState<Book[]>(allBooks(config));
   const [icons, setIcons] = useState<Record<string, string>>(config.categoryIcons ?? {});
   const [picking, setPicking] = useState<string | null>(null);
-  const [newCat, setNewCat] = useState('');
+  const [newCat, setNewCat] = useState<Record<string, string>>({});
   const [currency, setCurrency] = useState(config.currency);
+
   useEffect(() => {
-    setMembers(config.members); setCats(config.categories);
+    setMembers(config.members); setBooks(allBooks(config));
     setIcons(config.categoryIcons ?? {}); setCurrency(config.currency);
   }, [config]);
 
-  const dirty = JSON.stringify([members, cats, currency, icons])
-    !== JSON.stringify([config.members, config.categories, config.currency, config.categoryIcons ?? {}]);
-  const addCat = () => {
-    const c = newCat.trim();
-    if (c && !cats.includes(c)) setCats([...cats, c]);
-    setNewCat('');
+  const dirty = JSON.stringify([members, books, currency, icons])
+    !== JSON.stringify([config.members, allBooks(config), config.currency, config.categoryIcons ?? {}]);
+
+  const patch = (id: string, change: Partial<Book>) =>
+    setBooks(books.map((b) => (b.id === id ? { ...b, ...change } : b)));
+
+  const addCat = (b: Book) => {
+    const c = (newCat[b.id] ?? '').trim();
+    if (c && !b.categories.includes(c)) patch(b.id, { categories: [...b.categories, c] });
+    setNewCat({ ...newCat, [b.id]: '' });
   };
-  const move = (i: number, d: number) => {
+  const moveCat = (b: Book, i: number, d: number) => {
     const j = i + d;
-    if (j < 0 || j >= cats.length) return;
-    const next = [...cats];
+    if (j < 0 || j >= b.categories.length) return;
+    const next = [...b.categories];
     [next[i], next[j]] = [next[j], next[i]];
-    setCats(next);
+    patch(b.id, { categories: next });
   };
 
   return (
-    <section className="block">
-      <h2>成员和分类</h2>
-      {members.map((m, i) => (
-        <label key={m.id} className="field"><span className="field-label">成员 {i + 1}</span>
-          <input value={m.name} onChange={(e) => setMembers(members.map((x) => (x.id === m.id ? { ...x, name: e.target.value } : x)))} /></label>
-      ))}
-      <button className="link" onClick={() => setMembers([...members, { id: crypto.randomUUID().slice(0, 8), name: '' }])}>添加成员</button>
-      <p className="hint">为了不弄乱历史账目，成员只能改名不能删除。</p>
-
-      <span className="field-label">分类（顺序就是记账页的顺序，点图标可以更换）</span>
-      <ul className="cat-list">
-        {cats.map((c, i) => (
-          <li key={c}>
-            <button className="cat-icon" onClick={() => setPicking(picking === c ? null : c)}
-              aria-label={`更换 ${c} 的图标`} aria-expanded={picking === c}>
-              <Icon name={iconFor(c, icons as Record<string, IconName>)} />
-            </button>
-            <span>{c}</span>
-            <button className="icon" onClick={() => move(i, -1)} aria-label={`${c} 上移`} disabled={i === 0}>↑</button>
-            <button className="icon" onClick={() => move(i, 1)} aria-label={`${c} 下移`} disabled={i === cats.length - 1}>↓</button>
-            <button className="icon" onClick={() => setCats(cats.filter((x) => x !== c))} aria-label={`删除分类 ${c}`}>×</button>
-            {picking === c && (
-              <div className="icon-grid">
-                {ICON_NAMES.map((n) => (
-                  <button key={n} className={`icon-opt ${iconFor(c, icons as Record<string, IconName>) === n ? 'on' : ''}`}
-                    aria-label={n} aria-pressed={iconFor(c, icons as Record<string, IconName>) === n}
-                    onClick={() => { setIcons({ ...icons, [c]: n }); setPicking(null); }}>
-                    <Icon name={n} />
-                  </button>
-                ))}
-              </div>
-            )}
-          </li>
+    <>
+      <section className="block">
+        <h2>成员</h2>
+        {members.map((m, i) => (
+          <label key={m.id} className="field"><span className="field-label">成员 {i + 1}</span>
+            <input value={m.name} onChange={(e) => setMembers(members.map((x) => (x.id === m.id ? { ...x, name: e.target.value } : x)))} /></label>
         ))}
-      </ul>
-      <div className="inline-add">
-        <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="新分类"
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCat(); } }} />
-        <button className="ghost" onClick={addCat}>添加</button>
-      </div>
-      <p className="hint">删除分类不会影响已经记过的账。</p>
+        <button className="link" onClick={() => setMembers([...members, { id: crypto.randomUUID().slice(0, 8), name: '' }])}>添加成员</button>
+        <p className="hint">所有账本共用。成员只能改名不能删除。</p>
+        <label className="field narrow"><span className="field-label">货币符号</span>
+          <input value={currency} onChange={(e) => setCurrency(e.target.value)} /></label>
+      </section>
 
-      <label className="field narrow"><span className="field-label">货币符号</span>
-        <input value={currency} onChange={(e) => setCurrency(e.target.value)} /></label>
+      <section className="block">
+        <h2>账本</h2>
+        {books.filter((b) => !b.archived).map((b) => (
+          <div key={b.id} className="book-card">
+            <div className="book-card-top">
+              <span className={`book-dot color-${b.color}`} />
+              <input value={b.name} aria-label="账本名称" onChange={(e) => patch(b.id, { name: e.target.value })} />
+              {b.id === DEFAULT_BOOK ? (
+                <span className="hint">默认</span>
+              ) : (
+                <button className="link danger" onClick={() => {
+                  if (confirm(`删除账本「${b.name}」？账目不会真的删掉，只是不再显示，以后可以恢复。`)) patch(b.id, { archived: true });
+                }}>删除</button>
+              )}
+            </div>
+
+            <div className="book-row">
+              <span className="field-label">配色</span>
+              <span className="color-picks">
+                {BOOK_COLORS.map((c) => (
+                  <button key={c.id} className={`color-pick color-${c.id} ${b.color === c.id ? 'on' : ''}`}
+                    aria-label={c.name} aria-pressed={b.color === c.id} onClick={() => patch(b.id, { color: c.id })} />
+                ))}
+              </span>
+            </div>
+
+            <div className="book-row">
+              <span className="field-label">视图</span>
+              <div className="segmented">
+                <button className={b.mode === 'monthly' ? 'on' : ''} onClick={() => patch(b.id, { mode: 'monthly' })}>按月</button>
+                <button className={b.mode === 'running' ? 'on' : ''} onClick={() => patch(b.id, { mode: 'running' })}>累计</button>
+              </div>
+            </div>
+
+            <div className="book-row top">
+              <span className="field-label">分类</span>
+              <div className="book-cats">
+                <ul className="cat-list">
+                  {b.categories.map((c, i) => (
+                    <li key={c}>
+                      <button className="cat-icon" onClick={() => setPicking(picking === `${b.id}:${c}` ? null : `${b.id}:${c}`)}
+                        aria-label={`更换 ${c} 的图标`} aria-expanded={picking === `${b.id}:${c}`}>
+                        <Icon name={iconFor(c, icons as Record<string, IconName>)} />
+                      </button>
+                      <span>{c}</span>
+                      <button className="icon" onClick={() => moveCat(b, i, -1)} aria-label={`${c} 上移`} disabled={i === 0}>↑</button>
+                      <button className="icon" onClick={() => moveCat(b, i, 1)} aria-label={`${c} 下移`} disabled={i === b.categories.length - 1}>↓</button>
+                      <button className="icon" onClick={() => patch(b.id, { categories: b.categories.filter((x) => x !== c) })} aria-label={`删除分类 ${c}`}>×</button>
+                      {picking === `${b.id}:${c}` && (
+                        <div className="icon-grid">
+                          {ICON_NAMES.map((n) => (
+                            <button key={n} className={`icon-opt ${iconFor(c, icons as Record<string, IconName>) === n ? 'on' : ''}`}
+                              aria-label={n} onClick={() => { setIcons({ ...icons, [c]: n }); setPicking(null); }}>
+                              <Icon name={n} />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <div className="inline-add">
+                  <input value={newCat[b.id] ?? ''} placeholder="新分类"
+                    onChange={(e) => setNewCat({ ...newCat, [b.id]: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCat(b); } }} />
+                  <button className="ghost" onClick={() => addCat(b)}>添加</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+
+        <div className="actions start">
+          <button className="ghost" onClick={() => setBooks([...books, {
+            id: newBookId(books), name: '', color: BOOK_COLORS.find((c) => !books.some((b) => b.color === c.id))?.id ?? 'indigo',
+            mode: 'running', categories: HOUSE_CATEGORIES,
+          }])}>＋ 新建账本</button>
+        </div>
+        <p className="hint">新账本默认是累计视图，分类给了一套房子相关的，可以随便改。</p>
+      </section>
 
       <div className="actions">
-        <button className="primary" disabled={!dirty || saving || members.some((m) => !m.name.trim()) || !cats.length}
+        <button className="primary" disabled={!dirty || saving || members.some((m) => !m.name.trim()) || books.some((b) => !b.name.trim() || !b.categories.length)}
           onClick={() => onSave({
             ...config,
             members: members.map((m) => ({ ...m, name: m.name.trim() })),
-            categories: cats,
-            categoryIcons: Object.fromEntries(Object.entries(icons).filter(([k]) => cats.includes(k))),
+            books: books.map((b) => ({ ...b, name: b.name.trim() })),
+            categories: books.find((b) => b.id === DEFAULT_BOOK)?.categories ?? config.categories,
+            categoryIcons: icons,
             currency: currency.trim() || '$',
           })}>
           {saving ? '保存中…' : '保存设置'}
         </button>
       </div>
-    </section>
+    </>
   );
 }

@@ -162,7 +162,10 @@ export function buildFlow(
   });
 
   if (startDate) {
-    rows.unshift({ kind: 'start', key: 'start', date: startDate, label: '对账起点', sub: '', delta: null, balance: 0 });
+    rows.unshift({
+      kind: 'start', key: 'start', date: monthLabelShort(startDate.slice(0, 7)),
+      label: '对账起点', sub: '', delta: null, balance: 0,
+    });
   }
 
   return {

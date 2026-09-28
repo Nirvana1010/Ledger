@@ -41,6 +41,8 @@ const DEFAULTS: Record<string, IconName> = {
   '水电网': 'bolt', '水费': 'droplet', '电费': 'bolt', '话费': 'phone',
   '交通': 'car', '加油': 'car', '日用': 'bottle', '购物': 'bag', '宠物': 'paw',
   '医疗': 'medical', '娱乐': 'ticket', '旅行': 'plane', '礼物': 'gift',
+  '装修': 'tools', '家具家电': 'bag', '保险/税/HOA': 'receipt',
+  '维修养护': 'tools', '手续费': 'book', '物业': 'home', '水电开通': 'droplet',
   '学习': 'book', '健身': 'dumbbell', '其他': 'receipt',
 };
 

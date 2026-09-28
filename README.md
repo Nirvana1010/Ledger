@@ -42,15 +42,27 @@ GitHub → Settings → Developer settings → Personal access tokens → **Fine
 
 > token 只存在当前浏览器的 localStorage 里，不会上传到任何地方。换设备需要重新填。公共电脑用完请在设置里点“在这台设备上退出”。
 
+## 多账本
+
+日常开销和房子这类长期项目可以分开记。账本各有自己的分类、配色和转账流水，成员和货币符号共用。
+
+- 侧栏最上面切换，切换位置各自记住（存本机）
+- 两种视图：`monthly` 按月过日子，`running` 从头累计（适合装修、买房）
+- 新建 / 改名 / 配色 / 分类都在设置页；删除只归档，文件留在仓库里
+- 编辑一笔账时可以把它挪到别的账本
+
 ## 数据格式
 
 ```
 ledger-data/
-├── config.json          # 成员、分类、分类图标、货币符号
-├── settlements.json     # 转账流水 + 对账起点
-└── months/
-    ├── 2026-09.json     # 当月所有支出 + 是否已结清
-    └── 2026-10.json
+├── config.json          # 成员、账本定义、分类图标、货币符号
+├── settlements.json     # 默认账本的转账流水 + 对账起点
+├── months/              # 默认账本的账目
+│   ├── 2026-09.json
+│   └── 2026-10.json
+└── books/<账本 id>/      # 其他账本，结构相同
+    ├── settlements.json
+    └── months/…
 ```
 
 金额统一以**分**为整数存储。单笔支出：
@@ -91,7 +103,8 @@ src/
     ├── ExpenseForm.tsx      # 记一笔 / 修改
     ├── ExpenseList.tsx      # 明细 + CSV 导出
     ├── Summary.tsx          # 结算
-    ├── Sidebar.tsx          # 电脑端月份侧栏
+    ├── Sidebar.tsx          # 电脑端账本 / 月份侧栏
+    ├── RunningSummary.tsx   # 累计账本的余额与出资卡
     ├── BalancePage.tsx      # 跨月余额与流水
     ├── TransferDialog.tsx   # 记 / 改一笔转账
     ├── CategoryDonut.tsx    # 分类环形图（手写 SVG，无图表库）

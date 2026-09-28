@@ -24,7 +24,8 @@ export function BalancePage({
 }: Props) {
   const [dialog, setDialog] = useState<'new' | Payment | null>(null);
   const [editingStart, setEditingStart] = useState(false);
-  const [startDraft, setStartDraft] = useState(settlements.startDate ?? '');
+  // 起点以月为单位：界面选月份，存成当月 1 号
+  const [startDraft, setStartDraft] = useState((settlements.startDate ?? '').slice(0, 7));
 
   const c = config.currency;
   const me = config.members.find((m) => m.id === meId);
@@ -103,16 +104,16 @@ export function BalancePage({
               <span className="card-row-label">
                 <small>对账起点</small>
                 {editingStart ? (
-                  <input type="date" value={startDraft} onChange={(e) => setStartDraft(e.target.value)} />
+                  <input type="month" value={startDraft} onChange={(e) => setStartDraft(e.target.value)} />
                 ) : (
-                  <span className="num">{settlements.startDate ?? '不限'}</span>
+                  <span className="num">{settlements.startDate ? monthLabel(settlements.startDate.slice(0, 7)) : '不限'}</span>
                 )}
               </span>
               {editingStart ? (
                 <span className="card-row-actions">
-                  <button className="ghost small" onClick={() => { setEditingStart(false); setStartDraft(settlements.startDate ?? ''); }}>取消</button>
+                  <button className="ghost small" onClick={() => { setEditingStart(false); setStartDraft((settlements.startDate ?? '').slice(0, 7)); }}>取消</button>
                   <button className="primary small" disabled={saving}
-                    onClick={() => { onSetStartDate(startDraft || null); setEditingStart(false); }}>保存</button>
+                    onClick={() => { onSetStartDate(startDraft ? `${startDraft}-01` : null); setEditingStart(false); }}>保存</button>
                 </span>
               ) : (
                 <button className="ghost small" onClick={() => setEditingStart(true)}>修改</button>

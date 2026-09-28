@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { Config, Expense, MonthData } from '../lib/types';
+import type { Config, Expense } from '../lib/types';
 import { fmt } from '../lib/money';
 import { dayLabel } from '../lib/dates';
 import { computeShares } from '../lib/settle';
@@ -7,7 +7,11 @@ import { Icon, iconFor, type IconName } from './icons';
 
 type Props = {
   config: Config;
-  data: MonthData;
+  expenses: Expense[];
+  /** 导出文件名里的那一段，比如 2026-09 或 房子-全部 */
+  label: string;
+  /** 累计账本的日期要带年份 */
+  longDates?: boolean;
   /** table = 电脑上的紧凑表格；cards = 手机上的卡片列表 */
   variant?: 'cards' | 'table';
   onEdit: (e: Expense) => void;
@@ -29,11 +33,11 @@ export function splitSummary(e: Expense, config: Config): string {
   return '指定金额';
 }
 
-function toCSV(data: MonthData, config: Config): string {
+function toCSV(expenses: Expense[], config: Config): string {
   const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? id;
   const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
   const head = ['日期', '分类', '金额', '付款人', '备注', '分摊方式', ...config.members.map((m) => `${m.name}承担`)];
-  const rows = data.expenses.map((e) => {
+  const rows = expenses.map((e) => {
     const sh = computeShares(e);
     return [e.date, e.category, (e.amount / 100).toFixed(2), name(e.payerId), e.note, splitSummary(e, config),
       ...config.members.map((m) => ((sh[m.id] ?? 0) / 100).toFixed(2))];
@@ -41,34 +45,34 @@ function toCSV(data: MonthData, config: Config): string {
   return '\uFEFF' + [head, ...rows].map((r) => r.map(esc).join(',')).join('\n');
 }
 
-export function ExpenseList({ config, data, variant = 'cards', onEdit, onDelete }: Props) {
+export function ExpenseList({ config, expenses, label, longDates = false, variant = 'cards', onEdit, onDelete }: Props) {
   const [filter, setFilter] = useState<string | null>(null);
   const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '已移除';
 
   const shown = useMemo(
-    () => [...data.expenses].filter((e) => !filter || e.category === filter)
+    () => [...expenses].filter((e) => !filter || e.category === filter)
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)),
-    [data.expenses, filter],
+    [expenses, filter],
   );
   const groups = useMemo(() => {
     const m = new Map<string, Expense[]>();
     shown.forEach((e) => m.set(e.date, [...(m.get(e.date) ?? []), e]));
     return [...m.entries()];
   }, [shown]);
-  const usedCats = [...new Set(data.expenses.map((e) => e.category))];
+  const usedCats = [...new Set(expenses.map((e) => e.category))];
   const total = shown.reduce((a, e) => a + e.amount, 0);
 
   function exportCSV() {
-    const blob = new Blob([toCSV(data, config)], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([toCSV(shown, config)], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `账本-${data.month}.csv`;
+    a.download = `账本-${label}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
   }
 
-  if (!data.expenses.length) {
-    return <p className="empty">这个月还没有记录。{variant === 'table' ? '在上面记下第一笔支出。' : '去「记一笔」添加第一笔支出。'}</p>;
+  if (!expenses.length) {
+    return <p className="empty">还没有记录。{variant === 'table' ? '在上面记下第一笔支出。' : '去「记一笔」添加第一笔支出。'}</p>;
   }
 
   const filters = (
@@ -89,14 +93,16 @@ export function ExpenseList({ config, data, variant = 'cards', onEdit, onDelete 
           <button className="link" onClick={exportCSV}>导出 CSV</button>
         </div>
         {filters}
-        <div className="ledger-table">
+        <div className={`ledger-table ${longDates ? 'long' : ''}`}>
           <div className="lt-head">
             <span>日期</span><span></span><span>项目</span><span>付款人</span><span>分摊</span><span className="right">金额</span><span></span>
           </div>
           {shown.map((e) => (
             <div key={e.id} className="lt-row">
               <button className="lt-main" onClick={() => onEdit(e)} aria-label={`编辑 ${e.category} ${fmt(e.amount, config.currency)}`}>
-                <span className="lt-date num">{Number(e.date.slice(5, 7))} 月 {Number(e.date.slice(8))} 日</span>
+                <span className="lt-date num">
+                  {longDates ? `${e.date.slice(0, 4)} 年 ` : ''}{Number(e.date.slice(5, 7))} 月 {Number(e.date.slice(8))} 日
+                </span>
                 <span className="lt-icon"><Icon name={iconFor(e.category, config.categoryIcons as Record<string, IconName>)} size={16} /></span>
                 <span className="lt-note">{e.note || e.category}{e.note && <small> · {e.category}</small>}</span>
                 <span className="lt-dim">{name(e.payerId)}</span>

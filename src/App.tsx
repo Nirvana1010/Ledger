@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Config, Expense, MonthData, Payment, Settings, Settlements } from './lib/types';
-import { CONFIG_PATH, SETTLEMENTS_PATH, Store, monthPath } from './lib/github';
-import { currentMonth, defaultDateFor, monthLabel, monthOf, shiftMonth } from './lib/dates';
+import type { Book, Config, Expense, MonthData, Payment, Settings, Settlements } from './lib/types';
+import { CONFIG_PATH, DEFAULT_BOOK, Store, monthPath, settlementsPath } from './lib/github';
+import { bookConfig, findBook, getBooks } from './lib/books';
+import { currentMonth, defaultDateFor, monthLabel, monthOf, shiftMonth, today } from './lib/dates';
 import { fmt } from './lib/money';
 import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
@@ -9,6 +10,7 @@ import { Summary } from './components/Summary';
 import { SettingsView } from './components/SettingsView';
 import { Sidebar } from './components/Sidebar';
 import { BalancePage } from './components/BalancePage';
+import { RunningSummary } from './components/RunningSummary';
 
 type Tab = 'add' | 'list' | 'settle' | 'settings' | 'balance';
 const TABS: [Tab, string][] = [['add', '记一笔'], ['list', '明细'], ['settle', '结算'], ['settings', '设置']];
@@ -25,6 +27,13 @@ function useMedia(query: string): boolean {
   return hit;
 }
 const SIDEBAR_KEY = 'ledger.sidebar.v1';
+const BOOK_KEY = 'ledger.book.v1';
+const VIEW_KEY = 'ledger.bookview.v1';
+
+/** 每本记住上次看的月份 / 年份 */
+function loadViews(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(VIEW_KEY) || '{}'); } catch { return {}; }
+}
 
 const SETTINGS_KEY = 'ledger.settings.v1';
 const emptySettings: Settings = { owner: '', repo: '', branch: 'main', token: '', meId: '' };
@@ -47,7 +56,10 @@ export default function App() {
     [settings.owner, settings.repo, settings.branch, settings.token], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
+  const [bookId, setBookId] = useState(() => localStorage.getItem(BOOK_KEY) || DEFAULT_BOOK);
+  const [views, setViews] = useState<Record<string, string>>(loadViews);
   const [month, setMonth] = useState(currentMonth);
+  const [range, setRange] = useState('all');
   const [config, setConfig] = useState<Config | null>(null);
   const [configMissing, setConfigMissing] = useState(false);
   const [data, setData] = useState<MonthData | null>(null);
@@ -72,12 +84,56 @@ export default function App() {
     try { localStorage.setItem(SIDEBAR_KEY, open ? 'open' : 'closed'); } catch { /* 忽略 */ }
   };
 
+  const books: Book[] = config ? getBooks(config) : [];
+  const book: Book | null = config ? findBook(config, bookId) : null;
+  const running = book?.mode === 'running';
+  const viewConfig = config && book ? bookConfig(config, book) : config;
   const meName = config?.members.find((m) => m.id === settings.meId)?.name ?? '有人';
+
+  /** 切账本：记住上一本看到哪儿，恢复新一本上次的位置 */
+  const switchBook = (id: string) => {
+    if (id === bookId) return;
+    const nextViews = { ...views, [bookId]: running ? range : month };
+    setViews(nextViews);
+    try {
+      localStorage.setItem(VIEW_KEY, JSON.stringify(nextViews));
+      localStorage.setItem(BOOK_KEY, id);
+    } catch { /* 隐私模式 */ }
+    const target = config ? findBook(config, id) : null;
+    const saved = nextViews[id];
+    if (target?.mode === 'running') setRange(saved && saved !== 'all' ? saved : 'all');
+    else setMonth(saved && /^\d{4}-\d{2}$/.test(saved) ? saved : currentMonth());
+    setBookId(id);
+    setEditing(null);
+    setMonthsData({});
+    setTab(tab === 'settings' ? 'settings' : 'add');
+  };
+
+  /** 当前视图里的账目：按月账本是当月，累计账本是全部（可按年筛） */
+  const viewExpenses: Expense[] = running
+    ? Object.values(monthsData).flatMap((d) => d.expenses)
+        .filter((e) => range === 'all' || e.date.slice(0, 4) === range)
+        .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
+    : (data?.expenses ?? []);
+
+  const years = [...new Set(Object.keys(monthsData).map((m) => m.slice(0, 4)))].sort((a, b) => b.localeCompare(a));
+  const yearTotals: Record<string, number> = { all: 0 };
+  for (const d of Object.values(monthsData)) {
+    const y = d.month.slice(0, 4);
+    const sum = d.expenses.reduce((a, e) => a + e.amount, 0);
+    yearTotals[y] = (yearTotals[y] ?? 0) + sum;
+    yearTotals.all += sum;
+  }
+  const bookBalances: Record<string, number> = {};
 
   const saveSettings = (s: Settings) => {
     setSettings(s);
     try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch { /* 隐私模式等情况 */ }
   };
+
+  useEffect(() => {
+    document.documentElement.dataset.book = book?.color ?? 'plum';
+  }, [book?.color]);
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -88,6 +144,7 @@ export default function App() {
   const noteMonth = useCallback((m: string, d: MonthData | null) => {
     setMonths((list) => (list.includes(m) ? list : [...list, m].sort((a, b) => b.localeCompare(a))));
     if (!d) return;
+    setMonthsData((map) => ({ ...map, [m]: d }));
     setMonthTotals((t) => ({ ...t, [m]: d.expenses.reduce((a, e) => a + e.amount, 0) }));
   }, []);
 
@@ -107,7 +164,7 @@ export default function App() {
     if (!store) return;
     if (!quiet) setLoading(true);
     try {
-      const r = await store.read<MonthData>(monthPath(month));
+      const r = await store.read<MonthData>(monthPath(month, bookId));
       const d = r?.data ?? emptyMonth(month);
       setData(d);
       // 仓库里还没有这个月的文件就先不进侧栏列表，免得出现一堆 $0.00 的空月份
@@ -118,26 +175,26 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [store, month, noteMonth]);
+  }, [store, month, bookId, noteMonth]);
 
   const loadSettlements = useCallback(async () => {
     if (!store) return;
     try {
-      const r = await store.read<Settlements>(SETTLEMENTS_PATH);
+      const r = await store.read<Settlements>(settlementsPath(bookId));
       setSettlements(r?.data ?? emptySettlements());
     } catch { /* 还没结算过就是空的 */ }
-  }, [store]);
+  }, [store, bookId]);
 
   /** 结算页要算跨月余额，把所有月份的文件都拉下来 */
   const loadAllMonths = useCallback(async () => {
     if (!store) return;
     setBalanceLoading(true);
     try {
-      const list = await store.listMonths();
+      const list = await store.listMonths(bookId);
       setMonths(list);
       const entries = await Promise.all(list.map(async (m) => {
         try {
-          const r = await store.read<MonthData>(monthPath(m));
+          const r = await store.read<MonthData>(monthPath(m, bookId));
           return r ? ([m, r.data] as const) : null;
         } catch { return null; }
       }));
@@ -150,17 +207,17 @@ export default function App() {
     } finally {
       setBalanceLoading(false);
     }
-  }, [store]);
+  }, [store, bookId]);
 
   const loadMonths = useCallback(async () => {
     if (!store) return;
     try {
-      const list = await store.listMonths();
+      const list = await store.listMonths(bookId);
       setMonths(list);
       const recent = list.slice(0, 12);
       const results = await Promise.all(recent.map(async (m) => {
         try {
-          const r = await store.read<MonthData>(monthPath(m));
+          const r = await store.read<MonthData>(monthPath(m, bookId));
           return [m, r?.data] as const;
         } catch { return [m, undefined] as const; }
       }));
@@ -171,9 +228,11 @@ export default function App() {
       }
       setMonthTotals((t) => ({ ...t, ...totals }));
     } catch { /* 侧栏是附加信息，失败就不显示总额 */ }
-  }, [store]);
+  }, [store, bookId]);
 
   useEffect(() => { if (showSide) loadMonths(); }, [showSide, loadMonths]);
+  // 累计账本要一次拿到所有月份
+  useEffect(() => { if (running) loadAllMonths(); }, [running, loadAllMonths]);
 
   useEffect(() => { setConfig(null); setConfigMissing(false); loadConfig(); loadSettlements(); }, [loadConfig, loadSettlements]);
   useEffect(() => { if (tab === 'balance') { loadAllMonths(); loadSettlements(); } }, [tab, loadAllMonths, loadSettlements]);
@@ -207,12 +266,12 @@ export default function App() {
     const summary = `${e.category} ${fmt(e.amount, config.currency)}`;
     const ok = await run(async () => {
       if (from && from !== to) {
-        const removed = await store.update<MonthData>(monthPath(from), () => emptyMonth(from),
+        const removed = await store.update<MonthData>(monthPath(from, bookId), () => emptyMonth(from),
           (d) => ({ ...d, expenses: d.expenses.filter((x) => x.id !== e.id) }), `${meName}: 移动 ${summary} 到 ${to}`);
         noteMonth(from, removed);
         if (from === month) setData(removed);
       }
-      const next = await store.update<MonthData>(monthPath(to), () => emptyMonth(to), (d) => {
+      const next = await store.update<MonthData>(monthPath(to, bookId), () => emptyMonth(to), (d) => {
         const i = d.expenses.findIndex((x) => x.id === e.id);
         if (i >= 0) d.expenses[i] = e; else d.expenses.push(e);
         d.expenses.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
@@ -229,11 +288,34 @@ export default function App() {
     return !!ok;
   }
 
+  /** 把一笔账挪到另一个账本：原账本删掉，目标账本写入 */
+  async function moveExpense(e: Expense, toBook: string) {
+    if (!store || !config || toBook === bookId) return;
+    const m = monthOf(e.date);
+    const target = findBook(config, toBook);
+    const ok = await run(async () => {
+      await store.update<MonthData>(monthPath(m, bookId), () => emptyMonth(m),
+        (d) => ({ ...d, expenses: d.expenses.filter((x) => x.id !== e.id) }), `${meName}: 移出 ${e.category}`);
+      const toPath = `${monthPath(m, toBook)}`;
+      await store.update<MonthData>(toPath, () => emptyMonth(m), (d) => {
+        d.expenses.push(e);
+        d.expenses.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+        return d;
+      }, `${meName}: 移入 ${e.category}`);
+      return true;
+    });
+    if (ok) {
+      setEditing(null);
+      flash(`已移到「${target.name}」`);
+      if (running) loadAllMonths(); else loadMonth();
+    }
+  }
+
   async function deleteExpense(e: Expense) {
     if (!store || !config) return;
     if (!confirm(`删除「${e.note || e.category}」${fmt(e.amount, config.currency)}？`)) return;
     const m = monthOf(e.date);
-    const next = await run(() => store.update<MonthData>(monthPath(m), () => emptyMonth(m),
+    const next = await run(() => store.update<MonthData>(monthPath(m, bookId), () => emptyMonth(m),
       (d) => ({ ...d, expenses: d.expenses.filter((x) => x.id !== e.id) }),
       `${meName}: 删除 ${e.category} ${fmt(e.amount, config.currency)}`));
     if (next) { noteMonth(m, next); if (m === month) setData(next); flash('已删除'); }
@@ -241,7 +323,7 @@ export default function App() {
 
   async function savePayment(p: Payment): Promise<boolean> {
     if (!store || !config) return false;
-    const next = await run(() => store.update<Settlements>(SETTLEMENTS_PATH, emptySettlements, (d) => {
+    const next = await run(() => store.update<Settlements>(settlementsPath(bookId), emptySettlements, (d) => {
       const list = d.payments ?? [];
       const i = list.findIndex((x) => x.id === p.id);
       if (i >= 0) list[i] = p; else list.push(p);
@@ -255,7 +337,7 @@ export default function App() {
   async function deletePayment(p: Payment) {
     if (!store || !config) return;
     if (!confirm(`删除这笔 ${fmt(p.amount, config.currency)} 的转账？余额会跟着变。`)) return;
-    const next = await run(() => store.update<Settlements>(SETTLEMENTS_PATH, emptySettlements,
+    const next = await run(() => store.update<Settlements>(settlementsPath(bookId), emptySettlements,
       (d) => ({ ...d, payments: (d.payments ?? []).filter((x) => x.id !== p.id) }),
       `${meName}: 删除一笔转账`));
     if (next) { setSettlements(next); flash('已删除'); }
@@ -263,8 +345,8 @@ export default function App() {
 
   async function setStartDate(d: string | null) {
     if (!store) return;
-    const next = await run(() => store.update<Settlements>(SETTLEMENTS_PATH, emptySettlements,
-      (s0) => ({ ...s0, startDate: d }), `${meName}: 设置对账起点 ${d ?? '不限'}`));
+    const next = await run(() => store.update<Settlements>(settlementsPath(bookId), emptySettlements,
+      (s0) => ({ ...s0, startDate: d }), `${meName}: 设置对账起点 ${d ? d.slice(0, 7) : '不限'}`));
     if (next) { setSettlements(next); flash('已更新对账起点'); }
   }
 
@@ -279,17 +361,24 @@ export default function App() {
     return !!next;
   }
 
-  const ready = connected && config && data;
+  const ready = connected && config && (running ? true : !!data);
   const needMe = config && !config.members.some((m) => m.id === settings.meId);
 
   return (
     <div className={`app ${showSide ? 'with-side' : ''}`}>
       {showSide && config && (
-        <Sidebar months={months}
-          totals={data ? { ...monthTotals, [month]: data.expenses.reduce((a, e) => a + e.amount, 0) } : monthTotals} month={month} config={config}
-          meName={meName} onPick={(m) => { setMonth(m); setTab('add'); }} onCollapse={() => toggleSide(false)}
+        <Sidebar books={books} book={book!} bookBalances={bookBalances}
+          months={months}
+          totals={data && !running ? { ...monthTotals, [month]: data.expenses.reduce((a, e) => a + e.amount, 0) } : monthTotals}
+          month={month} years={years} yearTotals={yearTotals} range={range}
+          config={config} meName={meName}
+          balanceActive={tab === 'balance'}
+          onSwitchBook={switchBook}
+          onPick={(m) => { setMonth(m); setTab('add'); }}
+          onPickRange={(r) => { setRange(r); setTab('add'); }}
+          onCollapse={() => toggleSide(false)}
           onSettings={() => setTab('settings')}
-          balanceActive={tab === 'balance'} onBalance={() => setTab('balance')} />
+          onBalance={() => setTab('balance')} />
       )}
       <div className="app-body">
       <header className="top">
@@ -299,10 +388,21 @@ export default function App() {
             {wide && roomy && !sideOpen && tab !== 'settings' && (
               <button className="icon" onClick={() => toggleSide(true)} aria-label="展开侧栏">»</button>
             )}
-            <button className="icon" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="上个月">‹</button>
-            <button className={`month ${showSide ? 'big' : ''}`} onClick={() => setMonth(currentMonth())} title="回到本月">{monthLabel(month)}</button>
-            <button className="icon" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="下个月">›</button>
-            <button className="icon refresh" onClick={() => { loadMonth(); loadConfig(); if (showSide) loadMonths(); }} aria-label="刷新" disabled={loading}>↻</button>
+            {!showSide && books.length > 1 && (
+              <select className="book-select top-book" value={bookId} onChange={(e) => switchBook(e.target.value)} aria-label="账本">
+                {books.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            )}
+            {running ? (
+              <span className={`month ${showSide ? 'big' : ''}`}>{book?.name} · {range === 'all' ? '全部' : `${range} 年`}</span>
+            ) : (
+              <>
+                <button className="icon" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="上个月">‹</button>
+                <button className={`month ${showSide ? 'big' : ''}`} onClick={() => setMonth(currentMonth())} title="回到本月">{monthLabel(month)}</button>
+                <button className="icon" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="下个月">›</button>
+              </>
+            )}
+            <button className="icon refresh" onClick={() => { running ? loadAllMonths() : loadMonth(); loadConfig(); loadSettlements(); if (showSide) loadMonths(); }} aria-label="刷新" disabled={loading}>↻</button>
             {wide && (
               <button className="ghost small" onClick={() => setTab(tab === 'settings' ? 'add' : 'settings')}>
                 {tab === 'settings' ? '返回账本' : '设置'}
@@ -339,7 +439,7 @@ export default function App() {
         )}
 
         {tab === 'balance' && connected && config ? (
-          <BalancePage config={config} meId={settings.meId} monthsData={monthsData} settlements={settlements}
+          <BalancePage config={viewConfig!} meId={settings.meId} monthsData={monthsData} settlements={settlements}
             loading={balanceLoading} saving={saving} onSavePayment={savePayment} onDeletePayment={deletePayment}
             onSetStartDate={setStartDate} onBack={() => setTab(wide ? 'add' : 'settle')} />
         ) : tab === 'settings' || !connected ? (
@@ -349,32 +449,47 @@ export default function App() {
           <p className="empty">{loading || !error ? '正在读取账本…' : '读取失败。'}</p>
         ) : wide ? (
           <div className="desk">
-            <ExpenseForm key={editing ? editing.id : month} layout="bar" config={config} meId={settings.meId}
-              defaultDate={editing ? editing.date : defaultDateFor(month)} initial={editing}
-              saving={saving} onSave={saveExpense} onCancel={editing ? () => setEditing(null) : undefined} />
+            <ExpenseForm key={`${bookId}-${editing ? editing.id : month}`} layout="bar" config={viewConfig!} meId={settings.meId}
+              defaultDate={editing ? editing.date : (running ? today() : defaultDateFor(month))} initial={editing}
+              saving={saving} books={books} bookId={bookId}
+              onMoveBook={editing ? (id) => moveExpense(editing, id) : undefined}
+              onSave={saveExpense} onCancel={editing ? () => setEditing(null) : undefined} />
             <div className="desk-cols">
               <section className="desk-main">
-                <h2 className="block-title">本月明细</h2>
-                <ExpenseList config={config} data={data} variant="table" onEdit={setEditing} onDelete={deleteExpense} />
+                <h2 className="block-title">{running ? (range === 'all' ? '全部明细' : `${range} 年明细`) : '本月明细'}</h2>
+                <ExpenseList config={viewConfig!} expenses={viewExpenses} longDates={running}
+                  label={running ? `${book!.name}-${range === 'all' ? '全部' : range}` : month}
+                  variant="table" onEdit={setEditing} onDelete={deleteExpense} />
               </section>
               <section className="desk-aside">
-                <Summary config={config} data={data} saving={saving} onOpenBalance={() => setTab('balance')} compact />
+                {running ? (
+                  <RunningSummary config={viewConfig!} meId={settings.meId} expenses={viewExpenses}
+                    monthsData={monthsData} settlements={settlements} compact
+                    onOpenBalance={() => setTab('balance')} />
+                ) : (
+                  <Summary config={viewConfig!} data={data ?? emptyMonth(month)} saving={saving} onOpenBalance={() => setTab('balance')} compact />
+                )}
               </section>
             </div>
           </div>
         ) : editing ? (
           <>
             <h2 className="page-title">修改这笔</h2>
-            <ExpenseForm key={editing.id} config={config} meId={settings.meId} defaultDate={editing.date}
+            <ExpenseForm key={editing.id} config={viewConfig!} meId={settings.meId} defaultDate={editing.date}
               initial={editing} saving={saving} onSave={saveExpense} onCancel={() => setEditing(null)} />
           </>
         ) : tab === 'add' ? (
-          <ExpenseForm key={month} config={config} meId={settings.meId} defaultDate={defaultDateFor(month)}
+          <ExpenseForm key={`${bookId}-${month}`} config={viewConfig!} meId={settings.meId} defaultDate={defaultDateFor(month)}
             saving={saving} onSave={saveExpense} />
         ) : tab === 'list' ? (
-          <ExpenseList config={config} data={data} onEdit={setEditing} onDelete={deleteExpense} />
+          <ExpenseList config={viewConfig!} expenses={viewExpenses} longDates={running}
+            label={running ? `${book!.name}-${range === 'all' ? '全部' : range}` : month}
+            onEdit={setEditing} onDelete={deleteExpense} />
+        ) : running ? (
+          <RunningSummary config={viewConfig!} meId={settings.meId} expenses={viewExpenses}
+            monthsData={monthsData} settlements={settlements} onOpenBalance={() => setTab('balance')} />
         ) : (
-          <Summary config={config} data={data} saving={saving} onOpenBalance={() => setTab('balance')} />
+          <Summary config={viewConfig!} data={data ?? emptyMonth(month)} saving={saving} onOpenBalance={() => setTab('balance')} />
         )}
       </main>
 
