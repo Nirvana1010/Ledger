@@ -456,3 +456,9 @@ thead th { color: var(--muted); font-weight: 400; font-size: .8125rem; }
 .contrib > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .contrib .num { color: var(--ink); }
 .contrib-total { border-top: 1px dashed var(--line); padding-top: 7px; margin-top: 2px; }
+
+/* 月份的结清 / 归档标记 */
+.mark-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+.mark-lock { color: var(--muted); opacity: .8; flex: none; }
+.side-month.archived { color: var(--muted); }
+.side-month.archived .num { opacity: .7; }

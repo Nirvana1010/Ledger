@@ -185,3 +185,50 @@ function monthLabelShort(month: string): string {
   const [y, m] = month.split('-');
   return `${y} 年 ${Number(m)} 月`;
 }
+
+export type MonthMark = {
+  /** 到这个月末为止累计余额 ≤ 0，也就是之前的账都还清了 */
+  settled: boolean;
+  /** 在对账起点之前，不计入当前余额 */
+  archived: boolean;
+};
+
+/**
+ * 每个月末的累计状态。余额从最早的月份滚到最晚，
+ * 所以「已结清」总是从头连续亮到某个月，不会中间断档。
+ */
+export function monthMarks(
+  monthsData: Record<string, MonthData>,
+  payments: Payment[],
+  meId: string,
+  startDate?: string | null,
+): Record<string, MonthMark> {
+  const startMonth = startDate ? startDate.slice(0, 7) : null;
+  const out: Record<string, MonthMark> = {};
+  const all = Object.keys(monthsData).sort();
+  const active = all.filter((m) => !startMonth || m >= startMonth);
+  for (const m of all) if (!active.includes(m)) out[m] = { settled: false, archived: true };
+
+  // 先滚出每个月末的余额
+  const balances: number[] = [];
+  let running = 0;
+  for (const m of active) {
+    const expenses = monthsData[m].expenses.filter((e) => !startDate || e.date >= startDate);
+    running += debtDelta(expenses, meId);
+    for (const p of payments) {
+      if (p.date.slice(0, 7) !== m) continue;
+      if (startDate && p.date < startDate) continue;
+      if (p.from === meId) running -= p.amount;
+      else if (p.to === meId) running += p.amount;
+    }
+    balances.push(running);
+  }
+
+  // 某个月之后只要余额触到过 0，说明到那个月为止的账都被还清了
+  let minAfter = Infinity;
+  for (let i = active.length - 1; i >= 0; i--) {
+    minAfter = Math.min(minAfter, balances[i]);
+    out[active[i]] = { settled: minAfter <= 0, archived: false };
+  }
+  return out;
+}

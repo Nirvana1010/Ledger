@@ -1,4 +1,5 @@
 import type { Book, Config } from '../lib/types';
+import type { MonthMark } from '../lib/settle';
 import { fmt } from '../lib/money';
 import { currentMonth, monthLabel } from '../lib/dates';
 
@@ -8,6 +9,7 @@ type Props = {
   bookBalances: Record<string, number>;
   months: string[];
   totals: Record<string, number>;
+  marks: Record<string, MonthMark>;
   month: string;
   years: string[];
   yearTotals: Record<string, number>;
@@ -24,7 +26,7 @@ type Props = {
 };
 
 export function Sidebar({
-  books, book, bookBalances, months, totals, month, years, yearTotals, range,
+  books, book, bookBalances, months, totals, marks, month, years, yearTotals, range,
   config, meName, balanceActive, onSwitchBook, onPick, onPickRange, onCollapse, onSettings, onBalance,
 }: Props) {
   const c = config.currency;
@@ -54,13 +56,26 @@ export function Sidebar({
       {book.mode === 'monthly' ? (
         <nav className="side-months" aria-label="月份">
           <span className="side-label">月份</span>
-          {list.map((m) => (
-            <button key={m} className={`side-month ${m === month && !balanceActive ? 'on' : ''}`}
-              aria-current={m === month ? 'true' : undefined} onClick={() => onPick(m)}>
-              <span>{monthLabel(m)}</span>
-              <span className="num">{totals[m] !== undefined ? fmt(totals[m], c) : ''}</span>
-            </button>
-          ))}
+          {list.map((m) => {
+            const mark = marks[m];
+            return (
+              <button key={m} className={`side-month ${m === month && !balanceActive ? 'on' : ''} ${mark?.archived ? 'archived' : ''}`}
+                aria-current={m === month ? 'true' : undefined} onClick={() => onPick(m)}>
+                <span>{monthLabel(m)}</span>
+                <span className="num">
+                  {totals[m] !== undefined ? fmt(totals[m], c) : ''}
+                  {mark?.settled && <span className="mark-dot" title="到这个月为止已结清" />}
+                  {mark?.archived && (
+                    <svg className="mark-lock" width="11" height="11" viewBox="0 0 24 24" fill="none"
+                      stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <title>已归档，不计入余额</title>
+                      <rect x="4" y="10.5" width="16" height="11" rx="2" /><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" />
+                    </svg>
+                  )}
+                </span>
+              </button>
+            );
+          })}
         </nav>
       ) : (
         <nav className="side-months" aria-label="时间范围">

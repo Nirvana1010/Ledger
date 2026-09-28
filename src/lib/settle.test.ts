@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildFlow, computeBalances, computeShares, computeTransfers } from './settle';
+import { buildFlow, computeBalances, computeShares, computeTransfers, monthMarks } from './settle';
 import { parseAmount } from './money';
 import type { Expense } from './types';
 
@@ -70,5 +70,47 @@ describe('累计余额', () => {
     );
     expect(flow.balance).toBe(0);
     expect(flow.rows).toHaveLength(1);
+  });
+});
+
+describe('月份结清标记', () => {
+  const md = (month: string, expenses: Expense[]) => ({ version: 1 as const, month, expenses });
+  const eq = (date: string, amount: number, payer: string) =>
+    ex({ date, amount, payerId: payer, split: { type: 'equal', participants: ['a', 'b'] } });
+
+  it('转账那个月和之前的月份一起标记为已结清', () => {
+    const marks = monthMarks(
+      {
+        '2026-06': md('2026-06', [eq('2026-06-10', 200000, 'b')]),
+        '2026-07': md('2026-07', [eq('2026-07-10', 100000, 'b')]),
+        '2026-08': md('2026-08', [eq('2026-08-10', 300000, 'b')]),
+      },
+      [{ id: 'p', date: '2026-07-31', from: 'a', to: 'b', amount: 150000, note: '', createdBy: 'a', createdAt: '' }],
+      'a',
+    );
+    expect(marks['2026-06'].settled).toBe(true);
+    expect(marks['2026-07'].settled).toBe(true);
+    expect(marks['2026-08'].settled).toBe(false);
+  });
+
+  it('只还一半不算结清', () => {
+    const marks = monthMarks(
+      { '2026-06': md('2026-06', [eq('2026-06-10', 200000, 'b')]) },
+      [{ id: 'p', date: '2026-06-30', from: 'a', to: 'b', amount: 40000, note: '', createdBy: 'a', createdAt: '' }],
+      'a',
+    );
+    expect(marks['2026-06'].settled).toBe(false);
+  });
+
+  it('对账起点之前的月份是归档', () => {
+    const marks = monthMarks(
+      {
+        '2026-05': md('2026-05', [eq('2026-05-10', 200000, 'b')]),
+        '2026-06': md('2026-06', [eq('2026-06-10', 200000, 'b')]),
+      },
+      [], 'a', '2026-06-01',
+    );
+    expect(marks['2026-05']).toEqual({ settled: false, archived: true });
+    expect(marks['2026-06'].archived).toBe(false);
   });
 });

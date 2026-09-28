@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Book, Config, Expense, MonthData, Payment, Settings, Settlements } from './lib/types';
 import { CONFIG_PATH, DEFAULT_BOOK, Store, monthPath, settlementsPath } from './lib/github';
 import { bookConfig, findBook, getBooks, getBooksRaw, noteKey } from './lib/books';
+import { monthMarks } from './lib/settle';
 import { currentMonth, defaultDateFor, monthLabel, monthOf, shiftMonth, today } from './lib/dates';
 import { fmt } from './lib/money';
 import { ExpenseForm } from './components/ExpenseForm';
@@ -125,6 +126,10 @@ export default function App() {
     yearTotals.all += sum;
   }
   const bookBalances: Record<string, number> = {};
+  // 结清标记要全量数据才准；侧栏只拉了最近 12 个月，更早的先不标
+  const marks = config && settings.meId
+    ? monthMarks(monthsData, settlements.payments, settings.meId, settlements.startDate)
+    : {};
 
   const saveSettings = (s: Settings) => {
     setSettings(s);
@@ -222,15 +227,18 @@ export default function App() {
         } catch { return [m, undefined] as const; }
       }));
       const totals: Record<string, number> = {};
+      const map: Record<string, MonthData> = {};
       for (const [m, d] of results) {
         if (!d) continue;
         totals[m] = d.expenses.reduce((a, e) => a + e.amount, 0);
+        map[m] = d;
       }
       setMonthTotals((t) => ({ ...t, ...totals }));
+      setMonthsData((x) => ({ ...x, ...map }));
     } catch { /* 侧栏是附加信息，失败就不显示总额 */ }
   }, [store, bookId]);
 
-  useEffect(() => { if (showSide) loadMonths(); }, [showSide, loadMonths]);
+  useEffect(() => { if (showSide) { loadMonths(); loadSettlements(); } }, [showSide, loadMonths, loadSettlements]);
   // 累计账本要一次拿到所有月份
   useEffect(() => { if (running) loadAllMonths(); }, [running, loadAllMonths]);
 
@@ -388,7 +396,7 @@ export default function App() {
     <div className={`app ${showSide ? 'with-side' : ''}`}>
       {showSide && config && (
         <Sidebar books={books} book={book!} bookBalances={bookBalances}
-          months={months}
+          months={months} marks={marks}
           totals={data && !running ? { ...monthTotals, [month]: data.expenses.reduce((a, e) => a + e.amount, 0) } : monthTotals}
           month={month} years={years} yearTotals={yearTotals} range={range}
           config={config} meName={meName}
