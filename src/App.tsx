@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Book, Config, Expense, MonthData, Payment, Settings, Settlements } from './lib/types';
 import { CONFIG_PATH, DEFAULT_BOOK, Store, monthPath, settlementsPath } from './lib/github';
-import { bookConfig, findBook, getBooks } from './lib/books';
+import { bookConfig, findBook, getBooks, getBooksRaw, noteKey } from './lib/books';
 import { currentMonth, defaultDateFor, monthLabel, monthOf, shiftMonth, today } from './lib/dates';
 import { fmt } from './lib/money';
 import { ExpenseForm } from './components/ExpenseForm';
@@ -282,10 +282,30 @@ export default function App() {
       return true;
     });
     if (ok) {
+      learnNote(e);
       flash(original ? '已保存修改' : to === month ? `已记下 ${summary}` : `已记到 ${monthLabel(to)}`);
       if (original) { setEditing(null); setTab('list'); }
     }
     return !!ok;
+  }
+
+  /** 记住这条备注对应哪个分类，下次输入同样的备注自动选中 */
+  function learnNote(e: Expense) {
+    if (!store || !config || !book) return;
+    const key = noteKey(e.note);
+    if (!key || book.noteMap?.[key] === e.category) return;
+    const updated: Config = {
+      ...config,
+      books: getBooksRaw(config).map((b) =>
+        b.id === book.id ? { ...b, noteMap: { ...(b.noteMap ?? {}), [key]: e.category } } : b),
+    };
+    setConfig(updated);
+    // 后台写，失败也不打断记账
+    store.update<Config>(CONFIG_PATH, () => updated, (d) => ({
+      ...d,
+      books: (d.books ?? getBooksRaw(config)).map((b) =>
+        b.id === book.id ? { ...b, noteMap: { ...(b.noteMap ?? {}), [key]: e.category } } : b),
+    }), `${meName}: 记住「${e.note.trim()}」→ ${e.category}`).catch(() => { /* 下次再说 */ });
   }
 
   /** 把一笔账挪到另一个账本：原账本删掉，目标账本写入 */
@@ -451,7 +471,7 @@ export default function App() {
           <div className="desk">
             <ExpenseForm key={`${bookId}-${editing ? editing.id : month}`} layout="bar" config={viewConfig!} meId={settings.meId}
               defaultDate={editing ? editing.date : (running ? today() : defaultDateFor(month))} initial={editing}
-              saving={saving} books={books} bookId={bookId}
+              saving={saving} books={books} bookId={bookId} noteMap={book?.noteMap}
               onMoveBook={editing ? (id) => moveExpense(editing, id) : undefined}
               onSave={saveExpense} onCancel={editing ? () => setEditing(null) : undefined} />
             <div className="desk-cols">
@@ -480,7 +500,7 @@ export default function App() {
           </>
         ) : tab === 'add' ? (
           <ExpenseForm key={`${bookId}-${month}`} config={viewConfig!} meId={settings.meId} defaultDate={defaultDateFor(month)}
-            saving={saving} onSave={saveExpense} />
+            saving={saving} noteMap={book?.noteMap} onSave={saveExpense} />
         ) : tab === 'list' ? (
           <ExpenseList config={viewConfig!} expenses={viewExpenses} longDates={running}
             label={running ? `${book!.name}-${range === 'all' ? '全部' : range}` : month}

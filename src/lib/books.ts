@@ -18,7 +18,7 @@ export function getBooks(config: Config): Book[] {
   return [{ id: DEFAULT_BOOK, name: '日常', color: 'plum', mode: 'monthly', categories: config.categories }];
 }
 
-export function allBooks(config: Config): Book[] {
+export function getBooksRaw(config: Config): Book[] {
   return config.books?.length
     ? config.books
     : [{ id: DEFAULT_BOOK, name: '日常', color: 'plum', mode: 'monthly', categories: config.categories }];
@@ -40,4 +40,18 @@ export function newBookId(existing: Book[]): string {
   let id = `book${n}`;
   while (used.has(id)) id = `book${++n}`;
   return id;
+}
+
+/** 备注归一化成查表用的键 */
+export function noteKey(note: string): string {
+  return note.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** 先按整条备注查，再退回第一个词 —— 「Costco 补货」也能命中「costco」 */
+export function lookupCategory(note: string, map: Record<string, string> | undefined, categories: string[]): string | null {
+  if (!map) return null;
+  const key = noteKey(note);
+  if (!key) return null;
+  const hit = map[key] ?? map[key.split(' ')[0]];
+  return hit && categories.includes(hit) ? hit : null;
 }

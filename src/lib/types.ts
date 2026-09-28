@@ -28,6 +28,8 @@ export type Book = {
   /** monthly = 按月过日子；running = 从头累计（装修、买房这种） */
   mode: 'monthly' | 'running';
   categories: string[];
+  /** 备注 → 分类的记忆，键是小写去空格后的备注 */
+  noteMap?: Record<string, string>;
   /** 删除的账本只归档，数据留在仓库里 */
   archived?: boolean;
 };

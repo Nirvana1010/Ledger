@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Book, Config, Member, Settings } from '../lib/types';
-import { BOOK_COLORS, HOUSE_CATEGORIES, allBooks, newBookId } from '../lib/books';
+import { BOOK_COLORS, HOUSE_CATEGORIES, getBooksRaw, newBookId } from '../lib/books';
 import { DEFAULT_BOOK } from '../lib/github';
 import { DEFAULT_CATEGORIES } from '../lib/types';
 import { Store } from '../lib/github';
@@ -115,19 +115,19 @@ function Setup({ saving, onCreate }: { saving: boolean; onCreate: (c: Config) =>
 
 function ConfigEditor({ config, saving, onSave }: { config: Config; saving: boolean; onSave: (c: Config) => Promise<boolean> }) {
   const [members, setMembers] = useState<Member[]>(config.members);
-  const [books, setBooks] = useState<Book[]>(allBooks(config));
+  const [books, setBooks] = useState<Book[]>(getBooksRaw(config));
   const [icons, setIcons] = useState<Record<string, string>>(config.categoryIcons ?? {});
   const [picking, setPicking] = useState<string | null>(null);
   const [newCat, setNewCat] = useState<Record<string, string>>({});
   const [currency, setCurrency] = useState(config.currency);
 
   useEffect(() => {
-    setMembers(config.members); setBooks(allBooks(config));
+    setMembers(config.members); setBooks(getBooksRaw(config));
     setIcons(config.categoryIcons ?? {}); setCurrency(config.currency);
   }, [config]);
 
   const dirty = JSON.stringify([members, books, currency, icons])
-    !== JSON.stringify([config.members, allBooks(config), config.currency, config.categoryIcons ?? {}]);
+    !== JSON.stringify([config.members, getBooksRaw(config), config.currency, config.categoryIcons ?? {}]);
 
   const blocked =
     members.some((m) => !m.name.trim()) ? '成员名字不能留空。'

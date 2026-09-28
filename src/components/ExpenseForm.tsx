@@ -3,6 +3,7 @@ import type { Config, Expense, Split } from '../lib/types';
 import { centsToInput, fmt, parseAmount } from '../lib/money';
 import { computeShares } from '../lib/settle';
 import { Icon, iconFor, type IconName } from './icons';
+import { lookupCategory } from '../lib/books';
 
 type Mode = Split['type'];
 
@@ -14,6 +15,8 @@ type Props = {
   saving: boolean;
   /** stack = 手机的竖排表单；bar = 电脑顶部的常驻输入条 */
   layout?: 'stack' | 'bar';
+  /** 备注 → 分类的记忆 */
+  noteMap?: Record<string, string>;
   /** 编辑时可以把这笔挪到别的账本 */
   books?: { id: string; name: string }[];
   bookId?: string;
@@ -22,7 +25,7 @@ type Props = {
   onCancel?: () => void;
 };
 
-export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout = 'stack', books, bookId, onMoveBook, onSave, onCancel }: Props) {
+export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout = 'stack', books, bookId, noteMap, onMoveBook, onSave, onCancel }: Props) {
   const members = config.members;
   const allIds = members.map((m) => m.id);
   const [amountText, setAmountText] = useState(initial ? centsToInput(initial.amount) : '');
@@ -47,6 +50,24 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout
     Object.fromEntries(allIds.map((id) => [id, initial?.split.type === 'exact' && initial.split.amounts[id] ? centsToInput(initial.split.amounts[id]) : ''])),
   );
   const [error, setError] = useState<string | null>(null);
+  /** 手动点过分类就以手动为准，直到下次备注变化 */
+  const [catTouched, setCatTouched] = useState(!!initial);
+
+  const changeNote = (text: string) => {
+    setNote(text);
+    const hit = lookupCategory(text, noteMap, config.categories);
+    if (hit) {
+      setCategory(hit);
+      setCatTouched(false);
+    } else if (!catTouched && config.categories.length) {
+      setCategory(config.categories[0]);
+    }
+  };
+
+  const pickCategory = (c: string) => {
+    setCategory(c);
+    setCatTouched(true);
+  };
 
   const otherOf = (id: string) => members.find((m) => m.id !== id);
 
@@ -144,6 +165,7 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout
       setMode('equal');
       setParticipants(allIds);
       setDerivedId(null);
+      setCatTouched(false);
       setPayerId(allIds.includes(meId) ? meId : allIds[0]);
       setError(null);
     }
@@ -156,7 +178,7 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout
     <div className="chips" role="radiogroup" aria-label="分类">
       {config.categories.map((c) => (
         <button type="button" key={c} role="radio" aria-checked={category === c}
-          className={`chip ${category === c ? 'on' : ''}`} onClick={() => setCategory(c)}>
+          className={`chip ${category === c ? 'on' : ''}`} onClick={() => pickCategory(c)}>
           <Icon name={iconFor(c, config.categoryIcons as Record<string, IconName>)} size={16} />{c}</button>
       ))}
       {!config.categories.includes(category) && (
@@ -194,7 +216,7 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout
           </div>
           <label className="field bar-note">
             <span className="field-label">备注</span>
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="比如：Costco、电费 8 月" />
+            <input value={note} onChange={(e) => changeNote(e.target.value)} placeholder="比如：Costco、电费 8 月" />
           </label>
           <label className="field bar-date">
             <span className="field-label">日期</span>
@@ -313,7 +335,7 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout
 
       <label className="field">
         <span className="field-label">备注</span>
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="比如：Costco、电费 8 月" />
+        <input value={note} onChange={(e) => changeNote(e.target.value)} placeholder="比如：Costco、电费 8 月" />
       </label>
 
       <fieldset className="field split">
