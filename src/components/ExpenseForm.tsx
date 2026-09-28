@@ -17,6 +17,8 @@ type Props = {
   layout?: 'stack' | 'bar';
   /** 备注 → 分类的记忆 */
   noteMap?: Record<string, string>;
+  /** 记过的备注，用来做自动补全（新的在前） */
+  noteSuggestions?: { note: string; category: string }[];
   /** 编辑时可以把这笔挪到别的账本 */
   books?: { id: string; name: string }[];
   bookId?: string;
@@ -25,7 +27,7 @@ type Props = {
   onCancel?: () => void;
 };
 
-export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout = 'stack', books, bookId, noteMap, onMoveBook, onSave, onCancel }: Props) {
+export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout = 'stack', books, bookId, noteMap, noteSuggestions = [], onMoveBook, onSave, onCancel }: Props) {
   const members = config.members;
   const allIds = members.map((m) => m.id);
   const [amountText, setAmountText] = useState(initial ? centsToInput(initial.amount) : '');
@@ -52,6 +54,75 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout
   const [error, setError] = useState<string | null>(null);
   /** 手动点过分类就以手动为准，直到下次备注变化 */
   const [catTouched, setCatTouched] = useState(!!initial);
+
+  const [sugOpen, setSugOpen] = useState(false);
+  const [sugIndex, setSugIndex] = useState(-1);
+
+  const suggestions = useMemo(() => {
+    const q = note.trim().toLowerCase();
+    if (!q) return [];
+    const seen = new Set<string>();
+    const out: { note: string; category: string }[] = [];
+    for (const s of noteSuggestions) {
+      const k = s.note.trim().toLowerCase();
+      if (!k || k === q || seen.has(k)) continue;
+      if (!k.includes(q)) continue;
+      seen.add(k);
+      out.push(s);
+      if (out.length === 6) break;
+    }
+    // 完全一致 > 开头匹配 > 包含，同级按最近用过的排
+    const rank = (t: string) => {
+      const k = t.toLowerCase();
+      return k === q ? 0 : k.startsWith(q) ? 1 : 2;
+    };
+    return out.sort((a, b) => rank(a.note) - rank(b.note) || a.note.length - b.note.length);
+  }, [note, noteSuggestions]);
+
+  const acceptSuggestion = (s: { note: string; category: string }) => {
+    setNote(s.note);
+    setCategory(s.category);
+    setCatTouched(false);
+    setSugOpen(false);
+    setSugIndex(-1);
+  };
+
+  const noteKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!sugOpen || !suggestions.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSugIndex((i) => (i + 1) % suggestions.length); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setSugIndex((i) => (i <= 0 ? suggestions.length - 1 : i - 1)); }
+    else if (e.key === 'Enter' && sugIndex >= 0) { e.preventDefault(); acceptSuggestion(suggestions[sugIndex]); }
+    // Tab 直接补全：没选中哪条就取第一条；补完还停在备注框，再按一次才跳走
+    else if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); acceptSuggestion(suggestions[sugIndex >= 0 ? sugIndex : 0]); }
+    else if (e.key === 'Escape') { setSugOpen(false); setSugIndex(-1); }
+  };
+
+  const noteBox = (className: string) => (
+    <label className={`field note-field ${className}`}>
+      <span className="field-label">备注</span>
+      <input value={note} autoComplete="off" role="combobox" aria-expanded={sugOpen && suggestions.length > 0}
+        aria-controls="note-sug" placeholder="比如：Costco、电费 8 月"
+        onChange={(e) => { changeNote(e.target.value); setSugOpen(true); setSugIndex(-1); }}
+        onFocus={() => setSugOpen(true)}
+        onBlur={() => window.setTimeout(() => setSugOpen(false), 120)}
+        onKeyDown={noteKeyDown} />
+      {sugOpen && suggestions.length > 0 && (
+        <ul className="sug" id="note-sug" role="listbox">
+          {suggestions.map((s, i) => (
+            <li key={s.note} role="option" aria-selected={i === sugIndex}>
+              <button type="button" className={i === sugIndex ? 'on' : ''}
+                onMouseDown={(e) => { e.preventDefault(); acceptSuggestion(s); }}>
+                <span className="sug-note">{s.note}</span>
+                <span className="sug-cat">
+                  <Icon name={iconFor(s.category, config.categoryIcons as Record<string, IconName>)} size={14} />{s.category}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </label>
+  );
 
   const changeNote = (text: string) => {
     setNote(text);
@@ -214,10 +285,7 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout
                 value={amountText} onChange={(e) => setAmountText(e.target.value)} />
             </div>
           </div>
-          <label className="field bar-note">
-            <span className="field-label">备注</span>
-            <input value={note} onChange={(e) => changeNote(e.target.value)} placeholder="比如：Costco、电费 8 月" />
-          </label>
+          {noteBox('bar-note')}
           <label className="field bar-date">
             <span className="field-label">日期</span>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -333,10 +401,7 @@ export function ExpenseForm({ config, meId, defaultDate, initial, saving, layout
         </label>
       </div>
 
-      <label className="field">
-        <span className="field-label">备注</span>
-        <input value={note} onChange={(e) => changeNote(e.target.value)} placeholder="比如：Costco、电费 8 月" />
-      </label>
+      {noteBox('')}
 
       <fieldset className="field split">
         <legend className="field-label">怎么分</legend>

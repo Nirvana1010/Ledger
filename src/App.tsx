@@ -127,6 +127,22 @@ export default function App() {
   }
   const bookBalances: Record<string, number> = {};
   // 结清标记要全量数据才准；侧栏只拉了最近 12 个月，更早的先不标
+  const noteSuggestions = (() => {
+    const pool = [...Object.values(monthsData).flatMap((d) => d.expenses), ...(data?.expenses ?? [])]
+      .filter((e) => e.note.trim())
+      .sort((a, b) => b.date.localeCompare(a.date));
+    const seen = new Set<string>();
+    const out: { note: string; category: string }[] = [];
+    for (const e of pool) {
+      const k = noteKey(e.note);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ note: e.note.trim(), category: e.category });
+      if (out.length === 80) break;
+    }
+    return out;
+  })();
+
   const marks = config && settings.meId
     ? monthMarks(monthsData, settlements.payments, settings.meId, settlements.startDate)
     : {};
@@ -479,7 +495,7 @@ export default function App() {
           <div className="desk">
             <ExpenseForm key={`${bookId}-${editing ? editing.id : month}`} layout="bar" config={viewConfig!} meId={settings.meId}
               defaultDate={editing ? editing.date : (running ? today() : defaultDateFor(month))} initial={editing}
-              saving={saving} books={books} bookId={bookId} noteMap={book?.noteMap}
+              saving={saving} books={books} bookId={bookId} noteMap={book?.noteMap} noteSuggestions={noteSuggestions}
               onMoveBook={editing ? (id) => moveExpense(editing, id) : undefined}
               onSave={saveExpense} onCancel={editing ? () => setEditing(null) : undefined} />
             <div className="desk-cols">
@@ -508,7 +524,7 @@ export default function App() {
           </>
         ) : tab === 'add' ? (
           <ExpenseForm key={`${bookId}-${month}`} config={viewConfig!} meId={settings.meId} defaultDate={defaultDateFor(month)}
-            saving={saving} noteMap={book?.noteMap} onSave={saveExpense} />
+            saving={saving} noteMap={book?.noteMap} noteSuggestions={noteSuggestions} onSave={saveExpense} />
         ) : tab === 'list' ? (
           <ExpenseList config={viewConfig!} expenses={viewExpenses} longDates={running}
             label={running ? `${book!.name}-${range === 'all' ? '全部' : range}` : month}

@@ -462,3 +462,18 @@ thead th { color: var(--muted); font-weight: 400; font-size: .8125rem; }
 .mark-lock { color: var(--muted); opacity: .8; flex: none; }
 .side-month.archived { color: var(--muted); }
 .side-month.archived .num { opacity: .7; }
+
+/* 备注自动补全 */
+.note-field { position: relative; }
+.sug {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 15; margin: 4px 0 0; padding: 4px;
+  list-style: none; background: var(--sheet); border: 1px solid var(--line); border-radius: 11px;
+  box-shadow: 0 12px 28px rgba(36, 27, 32, .14); max-height: 260px; overflow-y: auto;
+}
+.sug button {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%;
+  border: 0; background: none; border-radius: 8px; padding: 9px 10px; cursor: pointer; text-align: left; font-size: .9375rem;
+}
+.sug button:hover, .sug button.on { background: var(--accent-soft); }
+.sug-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sug-cat { display: inline-flex; align-items: center; gap: 5px; flex: none; color: var(--muted); font-size: .8125rem; }
