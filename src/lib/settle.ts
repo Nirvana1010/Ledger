@@ -206,29 +206,35 @@ export function monthMarks(
   const startMonth = startDate ? startDate.slice(0, 7) : null;
   const out: Record<string, MonthMark> = {};
   const all = Object.keys(monthsData).sort();
-  const active = all.filter((m) => !startMonth || m >= startMonth);
-  for (const m of all) if (!active.includes(m)) out[m] = { settled: false, archived: true };
-
-  // 先滚出每个月末的余额
-  const balances: number[] = [];
-  let running = 0;
-  for (const m of active) {
-    const expenses = monthsData[m].expenses.filter((e) => !startDate || e.date >= startDate);
-    running += debtDelta(expenses, meId);
-    for (const p of payments) {
-      if (p.date.slice(0, 7) !== m) continue;
-      if (startDate && p.date < startDate) continue;
-      if (p.from === meId) running -= p.amount;
-      else if (p.to === meId) running += p.amount;
-    }
-    balances.push(running);
+  const active: string[] = [];
+  for (const m of all) {
+    if (startMonth && m < startMonth) out[m] = { settled: false, archived: true };
+    else active.push(m);
   }
 
-  // 某个月之后只要余额触到过 0，说明到那个月为止的账都被还清了
+  // 和流水表一样按事件排：月度汇总记在月末，转账记在当天
+  type Ev = { at: string; month?: string; delta: number };
+  const events: Ev[] = [];
+  for (const m of active) {
+    const expenses = monthsData[m].expenses.filter((e) => !startDate || e.date >= startDate);
+    events.push({ at: `${m}-31`, month: m, delta: debtDelta(expenses, meId) });
+  }
+  for (const p of payments) {
+    if (startDate && p.date < startDate) continue;
+    if (p.from !== meId && p.to !== meId) continue;
+    events.push({ at: p.date, delta: p.from === meId ? -p.amount : p.amount });
+  }
+  events.sort((a, b) => a.at.localeCompare(b.at) || (a.month ? -1 : 1));
+
+  let running = 0;
+  const balances = events.map((ev) => (running += ev.delta));
+
+  // 某个月的汇总之后（含它自己）余额只要触到过 0，说明到那个月为止的账都还清了
   let minAfter = Infinity;
-  for (let i = active.length - 1; i >= 0; i--) {
+  for (let i = events.length - 1; i >= 0; i--) {
     minAfter = Math.min(minAfter, balances[i]);
-    out[active[i]] = { settled: minAfter <= 0, archived: false };
+    const m = events[i].month;
+    if (m) out[m] = { settled: minAfter <= 0, archived: false };
   }
   return out;
 }

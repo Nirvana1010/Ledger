@@ -114,3 +114,25 @@ describe('月份结清标记', () => {
     expect(marks['2026-06'].archived).toBe(false);
   });
 });
+
+describe('月中转账', () => {
+  const md = (month: string, expenses: Expense[]) => ({ version: 1 as const, month, expenses });
+  // b 付款、两人平分 ⇒ a 的欠款增加 amount / 2
+  const owe = (date: string, delta: number) =>
+    ex({ date, amount: delta * 2, payerId: 'b', split: { type: 'equal', participants: ['a', 'b'] } });
+
+  it('月底转账压平旧账，之前的月份都算结清（当月又花了钱也不影响）', () => {
+    const marks = monthMarks(
+      {
+        '2026-07': md('2026-07', [owe('2026-07-10', 203040)]),
+        '2026-08': md('2026-08', [owe('2026-08-10', 115279)]),
+        '2026-09': md('2026-09', [owe('2026-09-10', 242574)]),
+      },
+      [{ id: 'p', date: '2026-09-30', from: 'a', to: 'b', amount: 500000, note: '', createdBy: 'a', createdAt: '' }],
+      'a',
+    );
+    expect(marks['2026-07'].settled).toBe(true);
+    expect(marks['2026-08'].settled).toBe(true);
+    expect(marks['2026-09'].settled).toBe(false); // 转账之后 9 月还剩欠款
+  });
+});
